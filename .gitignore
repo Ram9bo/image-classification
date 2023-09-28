@@ -2,6 +2,7 @@
 venv/
 virtual-env/
 data/
+data.zip
 
 
 # Byte-compiled / optimized / DLL files

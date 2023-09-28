@@ -38,7 +38,7 @@ def toroidal_translate(image, shift_x=100, shift_y=100):
     return translated_image
 
 
-def augment(train, batch_size, rotate=True, flip=True, brightness_delta=0.2, translate=True):
+def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2, translate=True):
     """
     Augment the given dataset according to the given parameters and shuffle the resulting dataset.
     """
@@ -66,7 +66,7 @@ def augment(train, batch_size, rotate=True, flip=True, brightness_delta=0.2, tra
     return final.shuffle(final.cardinality() * (batch_size + 1))
 
 
-def all_data(val_split=0.5, batch_size=2, recombinations=10):
+def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True):
     """
     Retrieve the dataset in two parts: the augmented training set and the unmodified test set, split according
     to the val_split parameter.
@@ -144,8 +144,8 @@ def all_data(val_split=0.5, batch_size=2, recombinations=10):
 
     assert len(train_labels) == len(train_images)
     assert len(test_labels) == len(test_images)
-    print("Gathered", len(train_labels) + len(test_labels), "labeled images")
-    print(len(train_labels), "training images", len(test_labels), "test images")
+    # print("Gathered", len(train_labels) + len(test_labels), "labeled images")
+    # print(len(train_labels), "training images", len(test_labels), "test images")
 
     train_images = np.array(train_images)
     test_images = np.array(test_images)
@@ -155,6 +155,7 @@ def all_data(val_split=0.5, batch_size=2, recombinations=10):
     train = tf.data.Dataset.from_tensor_slices((train_images, train_labels)).batch(batch_size)
     val = tf.data.Dataset.from_tensor_slices((test_images, test_labels)).batch(batch_size)
 
-    augmented_train = augment(train, batch_size=batch_size)
-    print(f"Augmented training set to {augmented_train.cardinality() * batch_size} images")
-    return augmented_train, val
+    if augment:
+        train = augment_data(train, batch_size=batch_size)
+        # print(f"Augmented training set to {train.cardinality() * batch_size} images")
+    return train, val

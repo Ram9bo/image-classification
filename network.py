@@ -20,8 +20,8 @@ INPUT_SHAPE = (IMG_ROWS, IMG_COLS, RGB_CHANNELS)
 
 # TODO: try different resolutions, analyse prediction performance, runtime speed, and minimal model size
 
-def xception():
-    base = Xception(include_top=False, input_shape=INPUT_SHAPE, weights='imagenet', pooling='max')
+def xception(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES):
+    base = Xception(include_top=False, input_shape=input_shape, weights='imagenet', pooling='max')
 
     for layer in base.layers:
         layer.trainable = False
@@ -32,7 +32,7 @@ def xception():
     model.add(Dropout(0.1))
     model.add(Dense(128, activation='relu'))
     model.add(Dropout(0.1))
-    model.add(Dense(NUM_CLASSES, activation='softmax'))
+    model.add(Dense(num_classes, activation='softmax'))
 
     model.compile(
         loss='sparse_categorical_crossentropy',
@@ -45,8 +45,8 @@ def xception():
     return model
 
 
-def efficient_net():
-    base = EfficientNetB0(include_top=False, input_shape=INPUT_SHAPE, weights='imagenet', pooling='max')
+def efficient_net(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES):
+    base = EfficientNetB0(include_top=False, input_shape=input_shape, weights='imagenet', pooling='max')
 
     for layer in base.layers:
         layer.trainable = False
@@ -57,7 +57,7 @@ def efficient_net():
     model.add(Dropout(0.1))
     model.add(Dense(128, activation='relu'))
     model.add(Dropout(0.1))
-    model.add(Dense(NUM_CLASSES, activation='softmax'))
+    model.add(Dense(num_classes, activation='softmax'))
 
     model.compile(
         loss='sparse_categorical_crossentropy',
