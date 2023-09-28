@@ -1,0 +1,32 @@
+Architectures:
+CNN
+CNN - deep
+ResNet
+ResNet - deep
+VGG16 Pretrained
+ResNet50 - Pretrained
+EfficientNetB0 - Pretrained
+EfficientNetB1 - Pretrained
+EfficientNetB2 - Pretrained
+Xception - Pretrained
+
+Intra-Architecture:
+Number of layers
+Number of neurons
+Kernel sizes
+
+Problem Class:
+Classification
+Regression (with rounded prediction accuracy)
+
+Optimizers:
+RMSProp
+Adam
+SGD
+
+Finetuning:
+After finetuning with frozen feature extraction, do another finetuning run with unfrozen layers and a smaller learning rate (do not unfreeze batch normalization layers)
+
+Preprocessing:
+Switches for each type of augmentation
+Synthethic data

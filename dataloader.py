@@ -2,41 +2,159 @@
 Data loading and preparation.
 """
 
+import os
+import random
 import numpy as np
+import tensorflow as tf
+from PIL import Image
+from tensorflow.keras import datasets
+from itertools import permutations, combinations
 
 
-def load_data(image_path="data/images.npy", label_path="data/labels.npy"):
+# TODO dis- and reassemble training images
+# TODO: apply data augmentation to the cifar dataset for better comparisons
+def cifar_data():
     """
-    Loads images and labels from the given path, shuffles them pairwise
-    and splits them into test, train, and validation sets
+    Load the cifar10 dataset, in 4 parts, train_in, train_out, test_in, test_out
+    """
+    return datasets.cifar10.load_data()
+
+
+# TODO fix this so it works with the tensors from the dataset
+def toroidal_translate(image, shift_x=100, shift_y=100):
+    shift_x = random.randint(-shift_x, shift_x)
+    shift_y = random.randint(-shift_y, shift_y)
+
+    print(image.shape)
+    batch, rows, cols, channels = image.shape
+    translated_image = np.zeros_like(image)
+
+    for i in range(rows):
+        for j in range(cols):
+            new_i = (i + shift_x) % rows
+            new_j = (j + shift_y) % cols
+            translated_image[new_i, new_j] = image[i, j]
+
+    return translated_image
+
+
+def augment(train, batch_size, rotate=True, flip=True, brightness_delta=0.2, translate=True):
+    """
+    Augment the given dataset according to the given parameters and shuffle the resulting dataset.
+    """
+    final = train
+
+    if rotate:
+        # Apply rotations of 90, 180, and 270 degrees
+        for r in [1, 2, 3]:
+            final = final.concatenate(train.map(lambda x, y: (tf.image.rot90(x, k=r), y)))
+
+    if flip:
+        # Apply horizontal and vertical flipping
+        final = final.concatenate(train.map(lambda x, y: (tf.image.flip_left_right(x), y)))
+        final = final.concatenate(train.map(lambda x, y: (tf.image.random_flip_up_down(x), y)))
+
+    if brightness_delta > 0:
+        # Apply brightness delta
+        final = final.concatenate(train.map(lambda x, y: (tf.image.adjust_brightness(x, brightness_delta), y)))
+
+    if translate and False:
+        final = final.concatenate(train.map(lambda x, y: (toroidal_translate(x), y)))
+
+    # TODO: try random rotations
+
+    return final.shuffle(final.cardinality() * (batch_size + 1))
+
+
+def all_data(val_split=0.5, batch_size=2, recombinations=10):
+    """
+    Retrieve the dataset in two parts: the augmented training set and the unmodified test set, split according
+    to the val_split parameter.
     """
 
-    images = np.load(image_path)
-    labels = np.load(label_path)
+    base_dir = "data/all_images"
+    train_images = []
+    train_labels = []
+    test_images = []
+    test_labels = []
 
-    assert len(images) == len(labels)
+    folder_names = os.listdir(base_dir)
+    for folder_name in folder_names:
+        class_images = []
+        permuted_images = []
+        folder_path = os.path.join(base_dir, folder_name)
 
-    p = np.random.permutation(len(labels))
+        if os.path.isdir(folder_path):
+            label = folder_names.index(folder_name)  # Use folder name as the label
 
-    images = images[p]
-    labels = labels[p]
+            files = list(os.listdir(folder_path))
+            # TODO: think about shuffling so the distribution between train and test isn't static, but right now that
+            #  might not be fair with the small amount of data
+            num_files = len(files)
+            max_imgs = 10  # limit the number of used images to ensure class balance (right now the percentual
+            # differences are large)
+            for i, filename in enumerate(files):
+                if i >= max_imgs:
+                    break
+                file_path = os.path.join(folder_path, filename)
 
-    return split_data(images), split_data(labels)
+                # Ensure the file is an image (e.g., PNG or JPG)
+                if filename.endswith(('.png', '.jpg', '.jpeg', '.gif')):
+                    img = Image.open(file_path)
 
+                    # Convert the image to a NumPy array
+                    img_array = np.array(img)
+                    # There is (currently 1) image with 4 channels instead 3, but the 4th value is always 255,
+                    # so we get rid of it
+                    if img_array.shape == (512, 512, 4):
+                        img_array = img_array[:, :, :3]
 
-def split_data(data, test_frac=.1, val_frac=.1):
-    """
-    Splits the given data array into three arrays according to the given fractions.
-    Fractions are all in relation to the complete data set. Default is 10% test, 10% validation, 80% training
-    Returns the tuple (training, validation, test)
-    """
+                    # Append the image and label to the lists
+                    if i < max_imgs * val_split:
+                        class_images.append(img_array)
+                        permuted_images.append(img_array)  # Always include the originals as well
+                    else:
+                        test_images.append(img_array)
+                        test_labels.append(label)
 
-    rows = data.shape[0]
-    test_end_idx = round(rows * test_frac)
-    test = data[0: test_end_idx]
+            # Split images into four parts and create some recombinations.
+            if recombinations > 0:
+                image_parts = []
+                # Split each image into four parts and append them to the image_parts list
+                for image in class_images:
+                    row_split = np.array_split(image, 2, axis=0)
+                    for part_row in row_split:
+                        col_split = np.array_split(part_row, 2, axis=1)
+                        image_parts.extend(col_split)
 
-    val_end_idx = round(test_end_idx + rows * val_frac)
-    val = data[test_end_idx + 1: val_end_idx]
+                for _ in range(recombinations):
+                    # Randomly sample a combination of four parts
+                    random_combination = random.sample(image_parts, 4)
 
-    train = data[val_end_idx + 1: rows - 1]
-    return train, val, test
+                    # Create a new image by combining the sampled parts
+                    combined_image = np.hstack(random_combination[:2])
+                    combined_image = np.vstack([combined_image, np.hstack(random_combination[2:])])
+                    permuted_images.append(combined_image)
+
+            train_images.extend(permuted_images)
+            train_labels.extend([label] * len(permuted_images))
+
+            # TODO: whatever the final splitting and recombining becomes, do it once and store the results and then
+            #  just make the flag retrieve them or not, gonna save hours
+
+    assert len(train_labels) == len(train_images)
+    assert len(test_labels) == len(test_images)
+    print("Gathered", len(train_labels) + len(test_labels), "labeled images")
+    print(len(train_labels), "training images", len(test_labels), "test images")
+
+    train_images = np.array(train_images)
+    test_images = np.array(test_images)
+    train_labels = np.array(train_labels)
+    test_labels = np.array(test_labels)
+
+    train = tf.data.Dataset.from_tensor_slices((train_images, train_labels)).batch(batch_size)
+    val = tf.data.Dataset.from_tensor_slices((test_images, test_labels)).batch(batch_size)
+
+    augmented_train = augment(train, batch_size=batch_size)
+    print(f"Augmented training set to {augmented_train.cardinality() * batch_size} images")
+    return augmented_train, val

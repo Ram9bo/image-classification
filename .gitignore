@@ -1,6 +1,7 @@
 .idea/
 venv/
 virtual-env/
+data/
 
 
 # Byte-compiled / optimized / DLL files
