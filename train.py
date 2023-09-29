@@ -13,31 +13,56 @@ import network
 
 print('Available GPUs', tf.config.list_physical_devices('GPU'))
 
+# TODO: try regression, consider MAE and RMSE metrics
+# TODO: do an in-depth confusion analysis
+# TODO: class-wise precision, recall, F1
 
-def train_network(epochs=10, augment=True, recombinations=10, transfer=False):
-    # model = network.compile_model()
+def train_network(epochs=10, augment=True, recombinations=10, transfer=False, classmode="standard", freeze=True):
+    num_classes = 6
+    if classmode == "halve":
+        num_classes = num_classes // 2
+    elif classmode == "compress":
+        num_classes = num_classes - 2
+
     if transfer:
-        model = network.efficient_net()
+        model = network.xception(num_classes=num_classes, freeze=freeze)
     else:
-        model = network.resnet()
-    # model = network.vgg16()
+        model = network.resnet(num_classes=num_classes)
 
-    train, val = dataloader.all_data(augment=augment, recombinations=recombinations)
+    train, val = dataloader.all_data(augment=augment, recombinations=recombinations, classmode=classmode)
 
     # TODO: manually pretrain on a dataset other than imagenet (ideally the same sort of microscopy could also be in
     #  combination with imagenet)
 
-    # history = model.fit(train_data, epochs=20, verbose=1, validation_data=test_data)
-    # model.fit(x=cifar_train_x, y=cifar_train_y, epochs=10, verbose=1, validation_data=(cifar_test_x, cifar_test_y))
-    return model.fit(train, epochs=epochs, verbose=0, validation_data=val)
+    hist = model.fit(train, epochs=epochs, verbose=1, validation_data=val)
+    preds = np.argmax(model.predict(val), axis=1)
 
+    # Define a function to extract labels from dataset elements
+    def extract_labels(features, labels):
+        return labels
 
-# TODO: create averaged plots for cifar with different subset sizes of the training data (full test set can be used)
-#  to illustrate accuracy gains on larger datasets and make estimates regarding the amount of extra data needed
+    # Use the map function to apply the extract_labels function and convert to NumPy array
+    true_labels = np.array(list(val.map(extract_labels))).flatten()
+    print(preds)
+    print(true_labels)
+    correct, obo, incorrect = 0, 0, 0
+    for i in range(len(preds)):
+        t = true_labels[i]
+        p = preds[i]
+        if t == p:
+            correct += 1
+        elif abs(t - p) <= 1:
+            obo += 1
+        else:
+            incorrect += 1
+    print(correct, obo, incorrect)
+    print(correct / len(preds), obo / len(preds), incorrect / len(preds))
+
+    return hist
 
 # TODO: set up a BO-HPO experiment to optimize the architecture and hyperparameters
 
-def run_cifar(name, subsize=50):
+def run_cifar():
     merged_df = pd.DataFrame(columns=['Epochs', 'Validation Accuracy', 'Setting'])
     for size in [50, 500, 5000, 50000]:
         for i in range(5):
@@ -60,12 +85,12 @@ def run_cifar(name, subsize=50):
     print(merged_df)
 
 
-def average_train(name, runs=5, epochs=10, augment=True, recombinations=10, transfer=False):
+def average_train(name, runs=5, epochs=10, augment=True, recombinations=10, transfer=False, classmode="compress", freeze=True):
     # Initialize an empty DataFrame to store the merged data
     merged_df = pd.DataFrame(columns=['Epochs', 'Validation Accuracy', 'Setting'])
 
     for i in range(runs):
-        hist = train_network(epochs=epochs, augment=augment, recombinations=recombinations, transfer=transfer).history
+        hist = train_network(epochs=epochs, augment=augment, recombinations=recombinations, transfer=transfer, classmode=classmode, freeze=freeze).history
         # Extract the epoch and validation accuracy values
         epochs_range = range(1, len(hist["val_accuracy"]) + 1)
         val_accuracy = hist["val_accuracy"]
@@ -81,7 +106,6 @@ def average_train(name, runs=5, epochs=10, augment=True, recombinations=10, tran
 
 
 def ablation():
-    global runs
     # Create DataFrames for different settings
     runs = 5
     epochs = 30
@@ -111,20 +135,13 @@ def ablation():
     t8 = average_train("A + S + T", runs=runs, epochs=epochs, augment=True, recombinations=10, transfer=True)
     print(f"Setting completed in {np.round(time.time() - latest, decimals=0)}s")
     latest = time.time()
-    # TODO, more variations (possibly all 8)
     # Merge the DataFrames into one
     merged_all = pd.concat([t1, t2, t3, t4, t5, t6, t7, t8], ignore_index=True)
     # Print the merged DataFrame
     print(merged_all)
     merged_all.to_csv("ablation-efficient.csv")
-    # test_and_train()
-    # run_cifar()
-    # TODO: do a 5-run average (50-50 data split) for: no data augment, only rotation, only flipping, full augmentation,
-    #  in combination with CNN, ResNet
-    # TODO: try ensemble models
-    # TODO: once we have more data we can also train those models on separate parts of the data
-    # TODO: maybe it could even work on differently augmented data sets
 
+average_train("Initial Dataset", runs=1, epochs=5, augment=True, recombinations=10, transfer=True, classmode="standard", freeze=False)
 
-ablation()
-# run_cifar("cifar", 50 * 1000)
+# ablation()
+# run_cifar()

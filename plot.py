@@ -8,13 +8,14 @@ import pandas as pd
 # Set seaborn style
 sns.set_style("whitegrid")
 
-data = pd.read_csv("cifar_sizes.csv")
+data = pd.read_csv("test.csv")
 
 # Define the settings you want to exclude
 exclude_settings = ["A + T", "A + S", "S + T"]
 
 # Filter the DataFrame to exclude the specified settings
 filtered_data = data[~data['Setting'].isin(exclude_settings)]
+filtered_data["Count"] = filtered_data["Validation Accuracy"] * 60
 
 # Create the line plot
 plt.figure(figsize=(12, 6))
@@ -34,4 +35,4 @@ plt.subplots_adjust(right=0.75)  # Adjust the right value as needed
 # Show the plot
 #plt.show()
 
-plt.savefig("cifar-transfer.png")
+plt.savefig("test.png")
