@@ -8,7 +8,7 @@ import pandas as pd
 # Set seaborn style
 sns.set_style("whitegrid")
 
-data = pd.read_csv("cifar_sizes.csv")
+data = pd.read_csv("ablation-efficient.csv")
 
 # Define the settings you want to exclude
 exclude_settings = ["A + T", "A + S", "S + T"]
@@ -34,4 +34,4 @@ plt.subplots_adjust(right=0.75)  # Adjust the right value as needed
 # Show the plot
 #plt.show()
 
-plt.savefig("cifar-transfer.png")
+plt.savefig("ablation-efficient.png")
