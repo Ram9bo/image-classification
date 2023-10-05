@@ -71,8 +71,6 @@ def xception(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True):
         metrics=METRICS
     )
 
-    model.summary()
-
     return model
 
 
@@ -100,8 +98,6 @@ def efficient_net(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True)
         metrics=METRICS
     )
 
-    model.summary()
-
     return model
 
 
@@ -128,8 +124,6 @@ def vgg16(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True):
         optimizer='Adam',
         metrics=METRICS
     )
-
-    model.summary()
 
     return model
 

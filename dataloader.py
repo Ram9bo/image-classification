@@ -37,7 +37,7 @@ def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2
         # Apply brightness delta
         final = final.concatenate(train.map(lambda x, y: (tf.image.adjust_brightness(x, brightness_delta), y)))
 
-    return final.shuffle(final.cardinality() * (batch_size + 1))
+    return final.shuffle(final.cardinality() * (batch_size + 1), reshuffle_each_iteration=False)
 
 
 def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, classmode="standard"):
@@ -94,6 +94,7 @@ def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, class
                         test_images.append(img_array)
                         test_labels.append(label)
 
+            # TODO: implement variable tile sizes and test their impact
             # Split images into four parts and create some recombinations.
             if recombinations > 0:
                 image_parts = []
