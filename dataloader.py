@@ -4,39 +4,18 @@ Data loading and preparation.
 
 import os
 import random
+
 import numpy as np
 import tensorflow as tf
 from PIL import Image
 from tensorflow.keras import datasets
-from itertools import permutations, combinations
 
 
-# TODO dis- and reassemble training images
-# TODO: apply data augmentation to the cifar dataset for better comparisons
 def cifar_data():
     """
     Load the cifar10 dataset, in 4 parts, train_in, train_out, test_in, test_out
     """
     return datasets.cifar10.load_data()
-
-
-# TODO fix this so it works with the tensors from the dataset
-def toroidal_translate(image, shift_x=100, shift_y=100):
-    shift_x = random.randint(-shift_x, shift_x)
-    shift_y = random.randint(-shift_y, shift_y)
-
-    print(image.shape)
-    batch, rows, cols, channels = image.shape
-    translated_image = np.zeros_like(image)
-
-    for i in range(rows):
-        for j in range(cols):
-            new_i = (i + shift_x) % rows
-            new_j = (j + shift_y) % cols
-            translated_image[new_i, new_j] = image[i, j]
-
-    return translated_image
-
 
 def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2, translate=True):
     """
@@ -58,15 +37,10 @@ def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2
         # Apply brightness delta
         final = final.concatenate(train.map(lambda x, y: (tf.image.adjust_brightness(x, brightness_delta), y)))
 
-    if translate and False:
-        final = final.concatenate(train.map(lambda x, y: (toroidal_translate(x), y)))
-
-    # TODO: try random rotations
-
     return final.shuffle(final.cardinality() * (batch_size + 1))
 
 
-def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True):
+def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, classmode="standard"):
     """
     Retrieve the dataset in two parts: the augmented training set and the unmodified test set, split according
     to the val_split parameter.
@@ -86,10 +60,13 @@ def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True):
 
         if os.path.isdir(folder_path):
             label = folder_names.index(folder_name)  # Use folder name as the label
+            if classmode == "halve":
+                label = label // 2
+            elif classmode == "compress":
+                label = int(tf.clip_by_value(label - 1, 0, 3))
 
             files = list(os.listdir(folder_path))
-            # TODO: think about shuffling so the distribution between train and test isn't static, but right now that
-            #  might not be fair with the small amount of data
+            random.shuffle(files)
             num_files = len(files)
             max_imgs = 10  # limit the number of used images to ensure class balance (right now the percentual
             # differences are large)
@@ -103,7 +80,7 @@ def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True):
                     img = Image.open(file_path)
 
                     # Convert the image to a NumPy array
-                    img_array = np.array(img)
+                    img_array = np.array(img) / 255
                     # There is (currently 1) image with 4 channels instead 3, but the 4th value is always 255,
                     # so we get rid of it
                     if img_array.shape == (512, 512, 4):
@@ -138,9 +115,6 @@ def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True):
 
             train_images.extend(permuted_images)
             train_labels.extend([label] * len(permuted_images))
-
-            # TODO: whatever the final splitting and recombining becomes, do it once and store the results and then
-            #  just make the flag retrieve them or not, gonna save hours
 
     assert len(train_labels) == len(train_images)
     assert len(test_labels) == len(test_images)

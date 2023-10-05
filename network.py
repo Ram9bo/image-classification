@@ -11,33 +11,64 @@ from tensorflow.keras.applications import EfficientNetB0
 from tensorflow.keras.applications.resnet50 import ResNet50
 from tensorflow.keras.applications.xception import Xception
 
+
+# TODO: evaluate pretrained models with unfrozen layers, has a huge memory requirement, maybe I can do it at home, maybe not, could (un)freeze just a few layers
+
+def obo_accuracy(y_true, y_pred):
+    # Calculate the argmax of predicted values to get the predicted class labels
+    predicted_labels = tf.argmax(y_pred, axis=-1)
+
+    # Cast y_true to the data type of predicted_labels
+    y_true = tf.cast(y_true, predicted_labels.dtype)
+
+    # Calculate the absolute difference between true and predicted class labels
+    absolute_difference = tf.abs(y_true - predicted_labels)
+
+    # Check if the absolute difference is less than or equal to 1
+    correct_predictions = tf.cast(tf.less_equal(absolute_difference, 1), tf.float32)
+
+    # Calculate the mean accuracy across all predictions
+    accuracy = tf.reduce_mean(correct_predictions)
+
+    return accuracy
+
+
 NUM_CLASSES = 6
 IMG_COLS = 512
 IMG_ROWS = 512
 RGB_CHANNELS = 3
 INPUT_SHAPE = (IMG_ROWS, IMG_COLS, RGB_CHANNELS)
+METRICS = ["accuracy", obo_accuracy]
 
 
 # TODO: try different resolutions, analyse prediction performance, runtime speed, and minimal model size
 
-def xception(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES):
+def xception(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True):
     base = Xception(include_top=False, input_shape=input_shape, weights='imagenet', pooling='max')
 
     for layer in base.layers:
         layer.trainable = False
+    if not freeze:
+        # Unfreeze specific layers
+        for layer in base.layers[-5:]:  # Unfreeze the last 10 layers
+            layer.trainable = True
 
     model = Sequential()
     model.add(base)
     model.add(Dense(256, activation='relu'))
     model.add(Dropout(0.1))
-    model.add(Dense(128, activation='relu'))
+    model.add(Dense(256, activation='relu'))
+    model.add(Dropout(0.1))
+    model.add(Dense(256, activation='relu'))
+    model.add(Dropout(0.1))
+    model.add(Dense(256, activation='relu'))
     model.add(Dropout(0.1))
     model.add(Dense(num_classes, activation='softmax'))
 
     model.compile(
         loss='sparse_categorical_crossentropy',
         optimizer=tf.keras.optimizers.Adam(),
-        metrics=['accuracy']
+        metrics=METRICS
     )
 
     model.summary()
@@ -45,11 +76,15 @@ def xception(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES):
     return model
 
 
-def efficient_net(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES):
+def efficient_net(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True):
     base = EfficientNetB0(include_top=False, input_shape=input_shape, weights='imagenet', pooling='max')
 
     for layer in base.layers:
         layer.trainable = False
+    if not freeze:
+        # Unfreeze specific layers
+        for layer in base.layers[-10:]:  # Unfreeze the last 10 layers
+            layer.trainable = True
 
     model = Sequential()
     model.add(base)
@@ -62,7 +97,7 @@ def efficient_net(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES):
     model.compile(
         loss='sparse_categorical_crossentropy',
         optimizer=tf.keras.optimizers.Adam(learning_rate=5e-3),
-        metrics=['accuracy']
+        metrics=METRICS
     )
 
     model.summary()
@@ -70,11 +105,15 @@ def efficient_net(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES):
     return model
 
 
-def vgg16():
-    base = ResNet50(include_top=False, input_shape=INPUT_SHAPE, weights='imagenet', pooling='max')
+def vgg16(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True):
+    base = ResNet50(include_top=False, input_shape=input_shape, weights='imagenet', pooling='max')
 
     for layer in base.layers:
         layer.trainable = False
+    if not freeze:
+        # Unfreeze specific layers
+        for layer in base.layers[-10:]:  # Unfreeze the last 10 layers
+            layer.trainable = True
 
     model = Sequential()
     model.add(base)
@@ -82,12 +121,12 @@ def vgg16():
     model.add(Dropout(0.1))
     model.add(Dense(128, activation='relu'))
     model.add(Dropout(0.1))
-    model.add(Dense(NUM_CLASSES, activation='softmax'))
+    model.add(Dense(num_classes, activation='softmax'))
 
     model.compile(
         loss='sparse_categorical_crossentropy',
         optimizer='Adam',
-        metrics=['accuracy']
+        metrics=METRICS
     )
 
     model.summary()
@@ -102,7 +141,7 @@ def compile_model(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, loss="sparse
     """
 
     if metrics is None:
-        metrics = ["accuracy"]
+        metrics = ["accuracy", obo_accuracy]
 
     model = Sequential()
 
@@ -130,7 +169,7 @@ def compile_model(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, loss="sparse
 
     model.compile(loss=loss,
                   optimizer=optimizer,
-                  metrics=metrics)
+                  metrics=METRICS)
     return model
 
 
@@ -178,10 +217,5 @@ def resnet(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES):
     x = layers.Dense(num_classes, activation='softmax')(x)
 
     model = Model(inputs=input_tensor, outputs=x)
-    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=METRICS)
     return model
-
-# TODO: try a network that does binary (>3, <=3) possibly do a network with once such head in addition to the
-#  classification or regression
-#  TODO: try a regression approach TODO: refactor the separate networks into classes so
-#   we can share some functions and add identifiers to be used in the data storage and visualisation
