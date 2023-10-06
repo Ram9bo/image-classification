@@ -13,6 +13,7 @@ from tensorflow.keras.applications.xception import Xception
 
 
 # TODO: evaluate pretrained models with unfrozen layers, has a huge memory requirement, maybe I can do it at home, maybe not, could (un)freeze just a few layers
+# TODO: separate the final layers/final layer construction into a separate function for maintainability
 
 def obo_accuracy(y_true, y_pred):
     # Calculate the argmax of predicted values to get the predicted class labels
@@ -39,7 +40,7 @@ IMG_ROWS = 512
 RGB_CHANNELS = 3
 INPUT_SHAPE = (IMG_ROWS, IMG_COLS, RGB_CHANNELS)
 CLASSIFICATION_METRICS = ["accuracy", obo_accuracy]
-REGRESSION_METRICS = ["mean_squared_error"]
+REGRESSION_METRICS = ["mean_absolute_error"]
 
 
 # TODO: try different resolutions, analyse prediction performance, runtime speed, and minimal model size
@@ -54,17 +55,22 @@ def xception(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True, task
         for layer in base.layers[-5:]:  # Unfreeze the last 10 layers
             layer.trainable = True
 
+    if task_mode == "classification":
+        final_activation = 'softmax'
+    elif task_mode == "regression":
+        final_activation = None
+
     model = Sequential()
     model.add(base)
     model.add(Dense(256, activation='relu'))
-    model.add(Dropout(0.1))
+    # model.add(Dropout(0.1))
     model.add(Dense(256, activation='relu'))
-    model.add(Dropout(0.1))
+    # model.add(Dropout(0.1))
     model.add(Dense(256, activation='relu'))
-    model.add(Dropout(0.1))
+    # model.add(Dropout(0.1))
     model.add(Dense(256, activation='relu'))
-    model.add(Dropout(0.1))
-    model.add(Dense(num_classes, activation='softmax'))
+    # model.add(Dropout(0.1))
+    model.add(Dense(num_classes, activation=final_activation))
 
     if task_mode == "classification":
         model.compile(
@@ -92,13 +98,18 @@ def efficient_net(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True,
         for layer in base.layers[-10:]:  # Unfreeze the last 10 layers
             layer.trainable = True
 
+    if task_mode == "classification":
+        final_activation = 'softmax'
+    elif task_mode == "regression":
+        final_activation = None
+
     model = Sequential()
     model.add(base)
     model.add(Dense(256, activation='relu'))
     model.add(Dropout(0.1))
     model.add(Dense(128, activation='relu'))
     model.add(Dropout(0.1))
-    model.add(Dense(num_classes, activation='softmax'))
+    model.add(Dense(num_classes, activation=final_activation))
 
     if task_mode == "classification":
         model.compile(
@@ -126,13 +137,18 @@ def vgg16(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True, task_mo
         for layer in base.layers[-10:]:  # Unfreeze the last 10 layers
             layer.trainable = True
 
+    if task_mode == "classification":
+        final_activation = 'softmax'
+    elif task_mode == "regression":
+        final_activation = None
+
     model = Sequential()
     model.add(base)
     model.add(Dense(256, activation='relu'))
     model.add(Dropout(0.1))
     model.add(Dense(128, activation='relu'))
     model.add(Dropout(0.1))
-    model.add(Dense(num_classes, activation='softmax'))
+    model.add(Dense(num_classes, activation=final_activation))
 
     if task_mode == "classification":
         model.compile(
@@ -155,6 +171,10 @@ def compile_model(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, task_mode="c
     Constructs and compiles a sequential model.
     """
     model = Sequential()
+    if task_mode == "classification":
+        final_activation = 'softmax'
+    elif task_mode == "regression":
+        final_activation = None
 
     # Apply convolutional layers
     model.add(Conv2D(32, kernel_size=(3, 3),
@@ -176,7 +196,7 @@ def compile_model(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, task_mode="c
     model.add(Dropout(0.1))
     model.add(Dense(128, activation='relu'))
     model.add(Dropout(0.1))
-    model.add(Dense(num_classes, activation='softmax'))
+    model.add(Dense(num_classes, activation=final_activation))
 
     if task_mode == "classification":
         model.compile(
@@ -216,6 +236,11 @@ def resnet_block(x, filters, kernel_size=3, stride=1, conv_shortcut=False):
 # Define the ResNet model
 def resnet(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, task_mode="classification"):
     # Create the ResNet model
+
+    if task_mode == "classification":
+        final_activation = 'softmax'
+    elif task_mode == "regression":
+        final_activation = None
     input_tensor = layers.Input(shape=input_shape)
     x = layers.Conv2D(16, 7, strides=2, padding='same')(input_tensor)
     x = layers.BatchNormalization()(x)
@@ -234,7 +259,7 @@ def resnet(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, task_mode="classifi
     x = layers.GlobalAveragePooling2D()(x)
     x = layers.Dense(128, activation='relu')(x)
     x = layers.Dense(128, activation='relu')(x)
-    x = layers.Dense(num_classes, activation='softmax')(x)
+    x = layers.Dense(num_classes, activation=final_activation)(x)
 
     model = Model(inputs=input_tensor, outputs=x)
 

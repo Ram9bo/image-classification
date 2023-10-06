@@ -19,7 +19,7 @@ filtered_data["Count"] = filtered_data["Validation Accuracy"] * 60
 
 # Create the line plot
 plt.figure(figsize=(12, 6))
-#sns.lineplot(data=filtered_data, x='Epochs', y='Validation Accuracy', hue='Setting')
+# sns.lineplot(data=filtered_data, x='Epochs', y='Validation Accuracy', hue='Setting')
 sns.lineplot(data=filtered_data, x='Epochs', y='Validation Off-By-One Accuracy', hue='Setting')
 
 # Customize the plot labels and title
