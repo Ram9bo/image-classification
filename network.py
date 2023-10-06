@@ -38,12 +38,13 @@ IMG_COLS = 512
 IMG_ROWS = 512
 RGB_CHANNELS = 3
 INPUT_SHAPE = (IMG_ROWS, IMG_COLS, RGB_CHANNELS)
-METRICS = ["accuracy", obo_accuracy]
+CLASSIFICATION_METRICS = ["accuracy", obo_accuracy]
+REGRESSION_METRICS = ["mean_squared_error"]
 
 
 # TODO: try different resolutions, analyse prediction performance, runtime speed, and minimal model size
 
-def xception(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True):
+def xception(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True, task_mode="classification"):
     base = Xception(include_top=False, input_shape=input_shape, weights='imagenet', pooling='max')
 
     for layer in base.layers:
@@ -65,18 +66,25 @@ def xception(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True):
     model.add(Dropout(0.1))
     model.add(Dense(num_classes, activation='softmax'))
 
-    model.compile(
-        loss='sparse_categorical_crossentropy',
-        optimizer=tf.keras.optimizers.Adam(),
-        metrics=METRICS
-    )
+    if task_mode == "classification":
+        model.compile(
+            loss='sparse_categorical_crossentropy',
+            optimizer=tf.keras.optimizers.Adam(),
+            metrics=CLASSIFICATION_METRICS
+        )
+    elif task_mode == "regression":
+        model.compile(
+            loss='mean_squared_error',
+            optimizer=tf.keras.optimizers.Adam(),
+            metrics=REGRESSION_METRICS
+        )
 
     model.summary()
 
     return model
 
 
-def efficient_net(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True):
+def efficient_net(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True, task_mode="classification"):
     base = EfficientNetB0(include_top=False, input_shape=input_shape, weights='imagenet', pooling='max')
 
     for layer in base.layers:
@@ -94,18 +102,25 @@ def efficient_net(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True)
     model.add(Dropout(0.1))
     model.add(Dense(num_classes, activation='softmax'))
 
-    model.compile(
-        loss='sparse_categorical_crossentropy',
-        optimizer=tf.keras.optimizers.Adam(learning_rate=5e-3),
-        metrics=METRICS
-    )
+    if task_mode == "classification":
+        model.compile(
+            loss='sparse_categorical_crossentropy',
+            optimizer=tf.keras.optimizers.Adam(),
+            metrics=CLASSIFICATION_METRICS
+        )
+    elif task_mode == "regression":
+        model.compile(
+            loss='mean_squared_error',
+            optimizer=tf.keras.optimizers.Adam(),
+            metrics=REGRESSION_METRICS
+        )
 
     model.summary()
 
     return model
 
 
-def vgg16(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True):
+def vgg16(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True, task_mode="classification"):
     base = ResNet50(include_top=False, input_shape=input_shape, weights='imagenet', pooling='max')
 
     for layer in base.layers:
@@ -123,26 +138,28 @@ def vgg16(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True):
     model.add(Dropout(0.1))
     model.add(Dense(num_classes, activation='softmax'))
 
-    model.compile(
-        loss='sparse_categorical_crossentropy',
-        optimizer='Adam',
-        metrics=METRICS
-    )
+    if task_mode == "classification":
+        model.compile(
+            loss='sparse_categorical_crossentropy',
+            optimizer=tf.keras.optimizers.Adam(),
+            metrics=CLASSIFICATION_METRICS
+        )
+    elif task_mode == "regression":
+        model.compile(
+            loss='mean_squared_error',
+            optimizer=tf.keras.optimizers.Adam(),
+            metrics=REGRESSION_METRICS
+        )
 
     model.summary()
 
     return model
 
 
-def compile_model(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, loss="sparse_categorical_crossentropy",
-                  optimizer="Adam", metrics=None):
+def compile_model(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, task_mode="classification"):
     """
     Constructs and compiles a sequential model.
     """
-
-    if metrics is None:
-        metrics = ["accuracy", obo_accuracy]
-
     model = Sequential()
 
     # Apply convolutional layers
@@ -167,9 +184,18 @@ def compile_model(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, loss="sparse
     model.add(Dropout(0.1))
     model.add(Dense(num_classes, activation='softmax'))
 
-    model.compile(loss=loss,
-                  optimizer=optimizer,
-                  metrics=METRICS)
+    if task_mode == "classification":
+        model.compile(
+            loss='sparse_categorical_crossentropy',
+            optimizer=tf.keras.optimizers.Adam(),
+            metrics=CLASSIFICATION_METRICS
+        )
+    elif task_mode == "regression":
+        model.compile(
+            loss='mean_squared_error',
+            optimizer=tf.keras.optimizers.Adam(),
+            metrics=REGRESSION_METRICS
+        )
     return model
 
 
@@ -194,7 +220,7 @@ def resnet_block(x, filters, kernel_size=3, stride=1, conv_shortcut=False):
 
 
 # Define the ResNet model
-def resnet(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES):
+def resnet(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, task_mode="classification"):
     # Create the ResNet model
     input_tensor = layers.Input(shape=input_shape)
     x = layers.Conv2D(16, 7, strides=2, padding='same')(input_tensor)
@@ -217,5 +243,18 @@ def resnet(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES):
     x = layers.Dense(num_classes, activation='softmax')(x)
 
     model = Model(inputs=input_tensor, outputs=x)
-    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=METRICS)
+
+    if task_mode == "classification":
+        model.compile(
+            loss='sparse_categorical_crossentropy',
+            optimizer=tf.keras.optimizers.Adam(),
+            metrics=CLASSIFICATION_METRICS
+        )
+    elif task_mode == "regression":
+        model.compile(
+            loss='mean_squared_error',
+            optimizer=tf.keras.optimizers.Adam(),
+            metrics=REGRESSION_METRICS
+        )
+
     return model

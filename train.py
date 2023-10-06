@@ -17,17 +17,20 @@ print('Available GPUs', tf.config.list_physical_devices('GPU'))
 # TODO: do an in-depth confusion analysis
 # TODO: class-wise precision, recall, F1
 
-def train_network(epochs=10, augment=True, recombinations=10, transfer=False, classmode="standard", freeze=True):
+def train_network(epochs=10, augment=True, recombinations=10, transfer=False, classmode="standard", freeze=True, task_mode="classification"):
     num_classes = 6
     if classmode == "halve":
         num_classes = num_classes // 2
     elif classmode == "compress":
         num_classes = num_classes - 2
 
+    if task_mode == "regression":
+        num_classes = 1
+
     if transfer:
-        model = network.xception(num_classes=num_classes, freeze=freeze)
+        model = network.xception(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
     else:
-        model = network.resnet(num_classes=num_classes)
+        model = network.resnet(num_classes=num_classes, task_mode=task_mode)
 
     train, val = dataloader.all_data(augment=augment, recombinations=recombinations, classmode=classmode)
 
