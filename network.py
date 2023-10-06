@@ -79,8 +79,6 @@ def xception(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True, task
             metrics=REGRESSION_METRICS
         )
 
-    model.summary()
-
     return model
 
 
@@ -115,8 +113,6 @@ def efficient_net(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True,
             metrics=REGRESSION_METRICS
         )
 
-    model.summary()
-
     return model
 
 
@@ -150,8 +146,6 @@ def vgg16(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True, task_mo
             optimizer=tf.keras.optimizers.Adam(),
             metrics=REGRESSION_METRICS
         )
-
-    model.summary()
 
     return model
 

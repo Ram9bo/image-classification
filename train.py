@@ -10,8 +10,10 @@ import tensorflow as tf
 
 import dataloader
 import network
+import os
 
 print('Available GPUs', tf.config.list_physical_devices('GPU'))
+
 
 # TODO: try regression, consider MAE and RMSE metrics
 # TODO: do an in-depth confusion analysis
@@ -63,6 +65,7 @@ def train_network(epochs=10, augment=True, recombinations=10, transfer=False, cl
 
     return hist
 
+
 # TODO: set up a BO-HPO experiment to optimize the architecture and hyperparameters
 
 def run_cifar():
@@ -88,18 +91,22 @@ def run_cifar():
     print(merged_df)
 
 
-def average_train(name, runs=5, epochs=10, augment=True, recombinations=10, transfer=False, classmode="compress", freeze=True):
+def average_train(name, runs=5, epochs=10, augment=True, recombinations=10, transfer=False, classmode="compress",
+                  freeze=True):
     # Initialize an empty DataFrame to store the merged data
     merged_df = pd.DataFrame(columns=['Epochs', 'Validation Accuracy', 'Setting'])
 
     for i in range(runs):
-        hist = train_network(epochs=epochs, augment=augment, recombinations=recombinations, transfer=transfer, classmode=classmode, freeze=freeze).history
+        hist = train_network(epochs=epochs, augment=augment, recombinations=recombinations, transfer=transfer,
+                             classmode=classmode, freeze=freeze).history
         # Extract the epoch and validation accuracy values
         epochs_range = range(1, len(hist["val_accuracy"]) + 1)
         val_accuracy = hist["val_accuracy"]
+        obo_val_accuracy = hist["val_obo_accuracy"]
 
         # Create a DataFrame for the current run with a 'Setting' column
-        run_df = pd.DataFrame({'Epochs': epochs_range, 'Validation Accuracy': val_accuracy})
+        run_df = pd.DataFrame({'Epochs': epochs_range, 'Validation Accuracy': val_accuracy,
+                               'Validation Off-By-One Accuracy': obo_val_accuracy})
         run_df['Setting'] = name  # Add the 'Setting' column with the current setting name
 
         # Concatenate the current run's DataFrame to the merged DataFrame
@@ -109,42 +116,46 @@ def average_train(name, runs=5, epochs=10, augment=True, recombinations=10, tran
 
 
 def ablation():
+    # TODO: incorporate the add_runs function in this  so that intermediate results are saved (after each setting)
     # Create DataFrames for different settings
     runs = 5
     epochs = 30
     latest = time.time()
-    t1 = average_train("Initial Dataset", runs=runs, epochs=epochs, augment=False, recombinations=0, transfer=False)
+    t1 = average_train("No Recombination", runs=runs, epochs=epochs, augment=True, recombinations=0, transfer=True,
+                       freeze=False, classmode="standard")
     print(f"Setting completed in {np.round(time.time() - latest, decimals=0)}s")
     latest = time.time()
-    t2 = average_train("Augmented Dataset", runs=runs, epochs=epochs, augment=True, recombinations=0, transfer=False)
+    t2 = average_train("5 Recombinations", runs=runs, epochs=epochs, augment=True, recombinations=5,
+                       transfer=True, freeze=False, classmode="standard")
     print(f"Setting completed in {np.round(time.time() - latest, decimals=0)}s")
     latest = time.time()
-    t3 = average_train("Synthesized Dataset", runs=runs, epochs=epochs, augment=False, recombinations=10,
-                       transfer=False)
+    t3 = average_train("10 Recombinations", runs=runs, epochs=epochs, augment=True, recombinations=10, transfer=True,
+                       freeze=False, classmode="standard")
     print(f"Setting completed in {np.round(time.time() - latest, decimals=0)}s")
     latest = time.time()
-    t4 = average_train("Transfer Learning", runs=runs, epochs=epochs, augment=False, recombinations=0, transfer=True)
+    t4 = average_train("20 Recombinations", runs=runs, epochs=epochs, augment=True, recombinations=20,
+                       transfer=True,
+                       freeze=False, classmode="standard")
     print(f"Setting completed in {np.round(time.time() - latest, decimals=0)}s")
-    latest = time.time()
-    t5 = average_train("A + S", runs=runs, epochs=epochs, augment=True, recombinations=10, transfer=False)
-    print(f"Setting completed in {np.round(time.time() - latest, decimals=0)}s")
-    latest = time.time()
-    t6 = average_train("A + T", runs=runs, epochs=epochs, augment=True, recombinations=0, transfer=True)
-    print(f"Setting completed in {np.round(time.time() - latest, decimals=0)}s")
-    latest = time.time()
-    t7 = average_train("S + T", runs=runs, epochs=epochs, augment=False, recombinations=10, transfer=True)
-    print(f"Setting completed in {np.round(time.time() - latest, decimals=0)}s")
-    latest = time.time()
-    t8 = average_train("A + S + T", runs=runs, epochs=epochs, augment=True, recombinations=10, transfer=True)
-    print(f"Setting completed in {np.round(time.time() - latest, decimals=0)}s")
-    latest = time.time()
     # Merge the DataFrames into one
-    merged_all = pd.concat([t1, t2, t3, t4, t5, t6, t7, t8], ignore_index=True)
+    merged_all = pd.concat([t1, t2, t3, t4], ignore_index=True)
     # Print the merged DataFrame
     print(merged_all)
-    merged_all.to_csv("ablation-efficient.csv")
+    merged_all.to_csv("recombinations.csv")
 
-average_train("Initial Dataset", runs=1, epochs=5, augment=True, recombinations=10, transfer=True, classmode="standard", freeze=False)
 
+def add_runs(run_results, file):
+    if os.path.exists(file):
+        existing_data = pd.read_csv(file)
+    else:
+        existing_data = pd.DataFrame()
+
+    new_data = pd.concat([existing_data, run_results], ignore_index=True)
+    new_data.to_csv(file)
+
+
+h = average_train("100 recombinations", runs=5, epochs=30, augment=True, recombinations=100, transfer=True,
+                  freeze=False, classmode='standard')
+add_runs(h, "recombinations.csv")
 # ablation()
 # run_cifar()

@@ -8,7 +8,7 @@ import pandas as pd
 # Set seaborn style
 sns.set_style("whitegrid")
 
-data = pd.read_csv("test.csv")
+data = pd.read_csv("recombinations.csv")
 
 # Define the settings you want to exclude
 exclude_settings = ["A + T", "A + S", "S + T"]
@@ -19,7 +19,8 @@ filtered_data["Count"] = filtered_data["Validation Accuracy"] * 60
 
 # Create the line plot
 plt.figure(figsize=(12, 6))
-sns.lineplot(data=filtered_data, x='Epochs', y='Validation Accuracy', hue='Setting')
+#sns.lineplot(data=filtered_data, x='Epochs', y='Validation Accuracy', hue='Setting')
+sns.lineplot(data=filtered_data, x='Epochs', y='Validation Off-By-One Accuracy', hue='Setting')
 
 # Customize the plot labels and title
 plt.xlabel('Epochs')
@@ -33,6 +34,6 @@ plt.legend(title='Setting', bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.subplots_adjust(right=0.75)  # Adjust the right value as needed
 
 # Show the plot
-#plt.show()
+# plt.show()
 
-plt.savefig("test.png")
+plt.savefig("recombinations.png")
