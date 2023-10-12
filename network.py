@@ -15,6 +15,46 @@ from tensorflow.keras.applications.xception import Xception
 # TODO: evaluate pretrained models with unfrozen layers, has a huge memory requirement, maybe I can do it at home, maybe not, could (un)freeze just a few layers
 # TODO: separate the final layers/final layer construction into a separate function for maintainability
 
+def obt_accuracy(y_true, y_pred):
+    # Calculate the argmax of predicted values to get the predicted class labels
+    predicted_labels = tf.argmax(y_pred, axis=-1)
+
+    # Cast y_true to the data type of predicted_labels
+    y_true = tf.cast(y_true, predicted_labels.dtype)
+
+    # Calculate the absolute difference between true and predicted class labels
+    absolute_difference = tf.cast(tf.abs(y_true - predicted_labels), tf.float16)
+
+    # Check if the absolute difference is less than or equal to 0.5 using tf.math.less_equal
+    threshold = 0.1
+    correct_predictions = tf.where(absolute_difference < threshold, 1.0, 0.0)
+
+    # Calculate the mean accuracy across all predictions
+    accuracy = tf.reduce_mean(correct_predictions)
+
+    return accuracy
+
+
+def obh_accuracy(y_true, y_pred):
+    # Calculate the argmax of predicted values to get the predicted class labels
+    predicted_labels = tf.argmax(y_pred, axis=-1)
+
+    # Cast y_true to the data type of predicted_labels
+    y_true = tf.cast(y_true, predicted_labels.dtype)
+
+    # Calculate the absolute difference between true and predicted class labels
+    absolute_difference = tf.cast(tf.abs(y_true - predicted_labels), tf.float16)
+
+    # Check if the absolute difference is less than or equal to 0.5 using tf.math.less_equal
+    threshold = 0.5
+    correct_predictions = tf.where(absolute_difference < threshold, 1.0, 0.0)
+
+    # Calculate the mean accuracy across all predictions
+    accuracy = tf.reduce_mean(correct_predictions)
+    # TODO: this shit don't work
+    return accuracy
+
+
 def obo_accuracy(y_true, y_pred):
     # Calculate the argmax of predicted values to get the predicted class labels
     predicted_labels = tf.argmax(y_pred, axis=-1)
@@ -40,7 +80,39 @@ IMG_ROWS = 512
 RGB_CHANNELS = 3
 INPUT_SHAPE = (IMG_ROWS, IMG_COLS, RGB_CHANNELS)
 CLASSIFICATION_METRICS = ["accuracy", obo_accuracy]
-REGRESSION_METRICS = ["mean_absolute_error"]
+REGRESSION_METRICS = ["mean_absolute_error", obo_accuracy, obh_accuracy, obt_accuracy]
+
+
+def add_task_layers(model, num_classes, task_mode):
+    if task_mode == "classification":
+        final_activation = 'softmax'
+    elif task_mode == "regression":
+        final_activation = None
+
+    model.add(Dense(256, activation='relu'))
+    # model.add(Dropout(0.1))
+    model.add(Dense(256, activation='relu'))
+    # model.add(Dropout(0.1))
+    model.add(Dense(256, activation='relu'))
+    # model.add(Dropout(0.1))
+    model.add(Dense(256, activation='relu'))
+    # model.add(Dropout(0.1))
+    model.add(Dense(num_classes, activation=final_activation))
+
+    if task_mode == "classification":
+        model.compile(
+            loss='sparse_categorical_crossentropy',
+            optimizer=tf.keras.optimizers.Adam(),
+            metrics=CLASSIFICATION_METRICS
+        )
+    elif task_mode == "regression":
+        model.compile(
+            loss='mean_squared_error',
+            optimizer=tf.keras.optimizers.Adam(),
+            metrics=REGRESSION_METRICS
+        )
+
+    return model
 
 
 # TODO: try different resolutions, analyse prediction performance, runtime speed, and minimal model size
@@ -55,37 +127,10 @@ def xception(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True, task
         for layer in base.layers[-5:]:  # Unfreeze the last 10 layers
             layer.trainable = True
 
-    if task_mode == "classification":
-        final_activation = 'softmax'
-    elif task_mode == "regression":
-        final_activation = None
-
     model = Sequential()
     model.add(base)
-    model.add(Dense(256, activation='relu'))
-    # model.add(Dropout(0.1))
-    model.add(Dense(256, activation='relu'))
-    # model.add(Dropout(0.1))
-    model.add(Dense(256, activation='relu'))
-    # model.add(Dropout(0.1))
-    model.add(Dense(256, activation='relu'))
-    # model.add(Dropout(0.1))
-    model.add(Dense(num_classes, activation=final_activation))
 
-    if task_mode == "classification":
-        model.compile(
-            loss='sparse_categorical_crossentropy',
-            optimizer=tf.keras.optimizers.Adam(),
-            metrics=CLASSIFICATION_METRICS
-        )
-    elif task_mode == "regression":
-        model.compile(
-            loss='mean_squared_error',
-            optimizer=tf.keras.optimizers.Adam(),
-            metrics=REGRESSION_METRICS
-        )
-
-    return model
+    return add_task_layers(model, num_classes, task_mode)
 
 
 def efficient_net(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True, task_mode="classification"):
@@ -95,36 +140,15 @@ def efficient_net(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True,
         layer.trainable = False
     if not freeze:
         # Unfreeze specific layers
-        for layer in base.layers[-10:]:  # Unfreeze the last 10 layers
+        for layer in base.layers[-5:]:  # Unfreeze the last 10 layers
             layer.trainable = True
-
-    if task_mode == "classification":
-        final_activation = 'softmax'
-    elif task_mode == "regression":
-        final_activation = None
 
     model = Sequential()
     model.add(base)
-    model.add(Dense(256, activation='relu'))
-    model.add(Dropout(0.1))
-    model.add(Dense(128, activation='relu'))
-    model.add(Dropout(0.1))
-    model.add(Dense(num_classes, activation=final_activation))
 
-    if task_mode == "classification":
-        model.compile(
-            loss='sparse_categorical_crossentropy',
-            optimizer=tf.keras.optimizers.Adam(),
-            metrics=CLASSIFICATION_METRICS
-        )
-    elif task_mode == "regression":
-        model.compile(
-            loss='mean_squared_error',
-            optimizer=tf.keras.optimizers.Adam(),
-            metrics=REGRESSION_METRICS
-        )
+    # TODO: efficient and vgg16 pretrained models do not learn at all right now. Might want to manually figure out how to get them to work and/or include them in the HPO
 
-    return model
+    return add_task_layers(model, num_classes, task_mode)
 
 
 def vgg16(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True, task_mode="classification"):
@@ -134,36 +158,13 @@ def vgg16(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True, task_mo
         layer.trainable = False
     if not freeze:
         # Unfreeze specific layers
-        for layer in base.layers[-10:]:  # Unfreeze the last 10 layers
+        for layer in base.layers[-5:]:  # Unfreeze the last 10 layers
             layer.trainable = True
-
-    if task_mode == "classification":
-        final_activation = 'softmax'
-    elif task_mode == "regression":
-        final_activation = None
 
     model = Sequential()
     model.add(base)
-    model.add(Dense(256, activation='relu'))
-    model.add(Dropout(0.1))
-    model.add(Dense(128, activation='relu'))
-    model.add(Dropout(0.1))
-    model.add(Dense(num_classes, activation=final_activation))
 
-    if task_mode == "classification":
-        model.compile(
-            loss='sparse_categorical_crossentropy',
-            optimizer=tf.keras.optimizers.Adam(),
-            metrics=CLASSIFICATION_METRICS
-        )
-    elif task_mode == "regression":
-        model.compile(
-            loss='mean_squared_error',
-            optimizer=tf.keras.optimizers.Adam(),
-            metrics=REGRESSION_METRICS
-        )
-
-    return model
+    return add_task_layers(model, num_classes, task_mode)
 
 
 def compile_model(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, task_mode="classification"):

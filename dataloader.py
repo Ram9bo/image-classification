@@ -60,9 +60,9 @@ def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, class
 
         if os.path.isdir(folder_path):
             label = folder_names.index(folder_name)  # Use folder name as the label
-            if classmode == "halve":
+            if classmode == "halved":
                 label = label // 2
-            elif classmode == "compress":
+            elif classmode == "compressed":
                 label = int(tf.clip_by_value(label - 1, 0, 3))
 
             files = list(os.listdir(folder_path))
@@ -119,8 +119,6 @@ def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, class
 
     assert len(train_labels) == len(train_images)
     assert len(test_labels) == len(test_images)
-    # print("Gathered", len(train_labels) + len(test_labels), "labeled images")
-    # print(len(train_labels), "training images", len(test_labels), "test images")
 
     train_images = np.array(train_images)
     test_images = np.array(test_images)

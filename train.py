@@ -21,17 +21,19 @@ print('Available GPUs', tf.config.list_physical_devices('GPU'))
 def extract_labels(features, labels):
     return labels
 
+
 # TODO: ensemble model (based on different splits of the training data)
 # TODO: present confusion matrix (probably better in absolute numbers for now)
 # TODO: train a best-yet model, make predictions on the validation set and save them, for easier analysis development
 # TODO: compare transfer learning models to each other (and to handcrafted variants)
 
-def train_network(epochs=10, augment=True, recombinations=10, transfer=False, classmode="standard", freeze=True,
-                  task_mode="classification"):
+def train_network(conf_matrix_name, epochs=10, augment=True, recombinations=10, transfer=False, classmode="standard",
+                  freeze=True,
+                  task_mode="classification", transfer_source="xception"):
     num_classes = 6
-    if classmode == "halve":
+    if classmode == "halved":
         num_classes = num_classes // 2
-    elif classmode == "compress":
+    elif classmode == "compressed":
         num_classes = num_classes - 2
 
     if task_mode == "regression":
@@ -39,7 +41,14 @@ def train_network(epochs=10, augment=True, recombinations=10, transfer=False, cl
     print(f"Predicting {num_classes} classes")
 
     if transfer:
-        model = network.xception(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
+        if transfer_source == "xception":
+            model = network.xception(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
+        elif transfer_source == "efficient":
+            model = network.efficient_net(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
+        elif transfer_source == "vgg16":
+            model = network.efficient_net(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
+        else:
+            raise Exception("Transfer source not recognised")
     else:
         model = network.resnet(num_classes=num_classes, task_mode=task_mode)
 
@@ -65,7 +74,7 @@ def train_network(epochs=10, augment=True, recombinations=10, transfer=False, cl
     print(true_labels)
 
     if task_mode == "classification":
-        conf_matrix = tf.math.confusion_matrix(true_labels, preds) # / len(true_labels)
+        conf_matrix = tf.math.confusion_matrix(true_labels, preds)  # / len(true_labels)
 
         plt.figure(figsize=(8, 6))
         sns.set(font_scale=1.2)  # Adjust font size
@@ -75,6 +84,7 @@ def train_network(epochs=10, augment=True, recombinations=10, transfer=False, cl
         plt.ylabel('Actual')
         plt.title('Confusion Matrix')
         plt.savefig("confusion_matrix.png")
+        plt.close()
 
     correct, obo, incorrect = 0, 0, 0
     for i in range(len(preds)):
@@ -88,6 +98,27 @@ def train_network(epochs=10, augment=True, recombinations=10, transfer=False, cl
             incorrect += 1
     print(correct, obo, incorrect)
     print(correct / len(preds), obo / len(preds), incorrect / len(preds))
+
+    # Compute the confusion matrix
+    confusion = tf.math.confusion_matrix(
+        labels=true_labels,
+        predictions=preds,
+    )
+
+    # Create a heatmap of the confusion matrix
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(confusion, annot=True, fmt='d', cmap='Blues', cbar=False)
+
+    # Customize labels and title
+    plt.xlabel('Predicted')
+    plt.ylabel('True')
+    plt.title('Confusion Matrix')
+
+    # Save the heatmap figure to an image file (e.g., PNG)
+    plt.savefig(conf_matrix_name + ".png")
+    plt.close()
+
+    # TODO: make a confusion matrix and return it along the history
 
     return hist
 
@@ -117,70 +148,80 @@ def run_cifar():
     print(merged_df)
 
 
-def average_train(name, runs=5, epochs=10, augment=True, recombinations=10, transfer=False, classmode="compress",
-                  freeze=True, task_mode='classification'):
+def average_train(name, file, runs=5, epochs=10, augment=True, recombinations=10, transfer=False, classmode="standard",
+                  freeze=True, task_mode='classification', transfer_source="xception"):
+    start = time.time()
     # Initialize an empty DataFrame to store the merged data
     merged_df = pd.DataFrame(columns=['Epochs', 'Validation Accuracy', 'Setting'])
 
     for i in range(runs):
-        hist = train_network(epochs=epochs, augment=augment, recombinations=recombinations, transfer=transfer,
-                             classmode=classmode, freeze=freeze, task_mode=task_mode).history
+        hist = train_network(conf_matrix_name=name, epochs=epochs, augment=augment, recombinations=recombinations,
+                             transfer=transfer,
+                             classmode=classmode, freeze=freeze, task_mode=task_mode,
+                             transfer_source=transfer_source).history
+
+        # TODO: take the returned conf matrices of all runs and average them?
 
         if task_mode == "classification":
 
             # Extract the epoch and validation accuracy values
-            epochs_range = range(1, len(hist["val_accuracy"]) + 1)
+            epochs_range = list(range(1, len(hist["val_accuracy"]) + 1))
+            epochs_range += epochs_range
 
             val_accuracy = hist["val_accuracy"]
             obo_val_accuracy = hist["val_obo_accuracy"]
 
+            metrics = ["Validation Accuracy"] * len(val_accuracy) + ["Validation Off-By-One Accuracy"] * len(
+                obo_val_accuracy)
+            values = val_accuracy + obo_val_accuracy
+
             # Create a DataFrame for the current run with a 'Setting' column
-            run_df = pd.DataFrame({'Epochs': epochs_range, 'Validation Accuracy': val_accuracy,
-                                   'Validation Off-By-One Accuracy': obo_val_accuracy})
+            run_df = pd.DataFrame({'Epochs': epochs_range, 'Value': values,
+                                   'Metric': metrics})
             run_df['Setting'] = name  # Add the 'Setting' column with the current setting name
         elif task_mode == "regression":
             # Extract the epoch and validation accuracy values
-            epochs_range = range(1, len(hist["val_mean_absolute_error"]) + 1)
+            epochs_range = list(range(1, len(hist["val_mean_absolute_error"]) + 1))
+            epochs_range *= 4
+
+            # TODO: implement the new way of saving the data
 
             val_mae = hist["val_mean_absolute_error"]
+            val_obo = hist["val_obo_accuracy"]
+            val_obh = hist["val_obh_accuracy"]
+            val_obt = hist["val_obt_accuracy"]
+
+            values = val_mae + val_obo + val_obh + val_obt
+            metrics = ["Validation MAE"] * len(val_mae) + ["Validation Off-By-One Accuracy"] * len(
+                val_obo) + len(val_obh) * ["Validation Off-By-Half Accuracy"] + len(val_obt) * [
+                          "Validation Off-By-Tenth Accuracy"]
 
             # Create a DataFrame for the current run with a 'Setting' column
-            run_df = pd.DataFrame({'Epochs': epochs_range, 'Validation MAE': val_mae})
+            run_df = pd.DataFrame(
+                {'Epochs': epochs_range, 'Value': values, 'Metric': metrics})
             run_df['Setting'] = name  # Add the 'Setting' column with the current setting name
 
         # Concatenate the current run's DataFrame to the merged DataFrame
         merged_df = pd.concat([merged_df, run_df], ignore_index=True)
 
-    return merged_df
+    add_runs(merged_df, file)
+    print(f"Finished {runs}  \"{name}\" runs in {(time.time() - start) / 60} minutes")
 
 
 def ablation():
-    # TODO: incorporate the add_runs function in this  so that intermediate results are saved (after each setting)
     # Create DataFrames for different settings
+    file = "regression.csv"
+
+    if not os.path.exists(file):
+        pd.DataFrame().to_csv(file)
     runs = 5
-    epochs = 30
-    latest = time.time()
-    t1 = average_train("No Recombination", runs=runs, epochs=epochs, augment=True, recombinations=0, transfer=True,
-                       freeze=False, classmode="standard")
-    print(f"Setting completed in {np.round(time.time() - latest, decimals=0)}s")
-    latest = time.time()
-    t2 = average_train("5 Recombinations", runs=runs, epochs=epochs, augment=True, recombinations=5,
-                       transfer=True, freeze=False, classmode="standard")
-    print(f"Setting completed in {np.round(time.time() - latest, decimals=0)}s")
-    latest = time.time()
-    t3 = average_train("10 Recombinations", runs=runs, epochs=epochs, augment=True, recombinations=10, transfer=True,
-                       freeze=False, classmode="standard")
-    print(f"Setting completed in {np.round(time.time() - latest, decimals=0)}s")
-    latest = time.time()
-    t4 = average_train("20 Recombinations", runs=runs, epochs=epochs, augment=True, recombinations=20,
-                       transfer=True,
-                       freeze=False, classmode="standard")
-    print(f"Setting completed in {np.round(time.time() - latest, decimals=0)}s")
-    # Merge the DataFrames into one
-    merged_all = pd.concat([t1, t2, t3, t4], ignore_index=True)
-    # Print the merged DataFrame
-    print(merged_all)
-    merged_all.to_csv("recombinations.csv")
+    epochs = 15
+
+    average_train("Regression", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=True,
+                  freeze=False, classmode="standard", transfer_source="xception", task_mode='regression')
+
+    average_train("Classification", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=True,
+                  freeze=False, classmode="standard", transfer_source="xception", task_mode='classification')
 
 
 def add_runs(run_results, file):
@@ -190,14 +231,9 @@ def add_runs(run_results, file):
         existing_data = pd.DataFrame()
 
     new_data = pd.concat([existing_data, run_results], ignore_index=True)
-    new_data.to_csv(file)
+    new_data.to_csv(file, index=False)
+
+    # TODO: something isn't entirely right, one unnamed column still shows up, might just want to manually take the desired columns here
 
 
-# h = average_train("100 recombinations", runs=5, epochs=30, augment=True, recombinations=100, transfer=True,
-# freeze=False, classmode='standard')
-# add_runs(h, "recombinations.csv")
-# ablation()
-# run_cifar()
-
-h = average_train("Regression", runs=1, epochs=2, augment=True, recombinations=5, transfer=True, freeze=False,
-                  classmode='standard', task_mode='classification')
+ablation()
