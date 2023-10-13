@@ -2,17 +2,18 @@
 Model training.
 """
 
+import util
+import os
 import time
-import matplotlib.pyplot as plt
-import seaborn as sns
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 import tensorflow as tf
 
 import dataloader
 import network
-import os
 
 print('Available GPUs', tf.config.list_physical_devices('GPU'))
 
@@ -23,13 +24,10 @@ def extract_labels(features, labels):
 
 
 # TODO: ensemble model (based on different splits of the training data)
-# TODO: present confusion matrix (probably better in absolute numbers for now)
-# TODO: train a best-yet model, make predictions on the validation set and save them, for easier analysis development
-# TODO: compare transfer learning models to each other (and to handcrafted variants)
 
 def train_network(conf_matrix_name, epochs=10, augment=True, recombinations=10, transfer=False, classmode="standard",
                   freeze=True,
-                  task_mode="classification", transfer_source="xception"):
+                  task_mode="classification", transfer_source="xception", colour="rgb", pretrain=False):
     num_classes = 6
     if classmode == "halved":
         num_classes = num_classes // 2
@@ -40,19 +38,22 @@ def train_network(conf_matrix_name, epochs=10, augment=True, recombinations=10, 
         num_classes = 1
     print(f"Predicting {num_classes} classes")
 
-    if transfer:
-        if transfer_source == "xception":
-            model = network.xception(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
-        elif transfer_source == "efficient":
-            model = network.efficient_net(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
-        elif transfer_source == "vgg16":
-            model = network.efficient_net(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
-        else:
-            raise Exception("Transfer source not recognised")
+    if pretrain:
+        model = pretrain_model(transfer=transfer, num_classes=num_classes, freeze=freeze, transfer_source=transfer_source)
     else:
-        model = network.resnet(num_classes=num_classes, task_mode=task_mode)
+        if transfer:
+            if transfer_source == "xception":
+                model = network.xception(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
+            elif transfer_source == "efficient":
+                model = network.efficient_net(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
+            elif transfer_source == "vgg16":
+                model = network.efficient_net(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
+            else:
+                raise Exception("Transfer source not recognised")
+        else:
+            model = network.resnet(num_classes=num_classes, task_mode=task_mode)
 
-    train, val = dataloader.all_data(augment=augment, recombinations=recombinations, classmode=classmode)
+    train, val = dataloader.all_data(augment=augment, recombinations=recombinations, classmode=classmode, colour=colour)
 
     # TODO: include both the presence and the strength of dropout in the HPO, also consider batch normalization, also switch input normalization (to 0-1) on/off
 
@@ -117,10 +118,50 @@ def train_network(conf_matrix_name, epochs=10, augment=True, recombinations=10, 
     # Save the heatmap figure to an image file (e.g., PNG)
     plt.savefig(conf_matrix_name + ".png")
     plt.close()
-
-    # TODO: make a confusion matrix and return it along the history
-
     return hist
+
+
+def pretrain_model(transfer=False, num_classes=6, freeze=True, task_mode="classification",
+                   transfer_source="xception", data="nombacter"):
+    pretrain_classes = 15
+
+    if transfer:
+        if transfer_source == "xception":
+            model = network.xception(num_classes=pretrain_classes, freeze=freeze)
+        elif transfer_source == "efficient":
+            model = network.efficient_net(num_classes=pretrain_classes, freeze=freeze)
+        elif transfer_source == "vgg16":
+            model = network.efficient_net(num_classes=pretrain_classes, freeze=freeze)
+        else:
+            raise Exception("Transfer source not recognised")
+    else:
+        model = network.resnet(num_classes=pretrain_classes, task_mode=task_mode)
+
+    train, val = dataloader.ssnombacter_data()
+    hist = model.fit(train, epochs=10, verbose=1, validation_data=val)
+
+    model.layers.pop()
+    activation = 'softmax' if task_mode == 'classification' else None
+    model.layers.append(tf.keras.layers.Dense(num_classes, activation=activation))
+
+    # TODO: consider cutting off multiple/all dense layers after pretraining
+    # TODO: tune the pretraining length (and architecture) a bit
+    # TODO: consider unfreezing a larger part of the base model (either just during pretraining or during both stages)
+
+    if task_mode == "classification":
+        model.compile(
+            loss='sparse_categorical_crossentropy',
+            optimizer=tf.keras.optimizers.Adam(),
+            metrics=network.CLASSIFICATION_METRICS
+        )
+    elif task_mode == "regression":
+        model.compile(
+            loss='mean_squared_error',
+            optimizer=tf.keras.optimizers.Adam(),
+            metrics=network.REGRESSION_METRICS
+        )
+
+    return model
 
 
 # TODO: set up a BO-HPO experiment to optimize the architecture and hyperparameters
@@ -149,7 +190,7 @@ def run_cifar():
 
 
 def average_train(name, file, runs=5, epochs=10, augment=True, recombinations=10, transfer=False, classmode="standard",
-                  freeze=True, task_mode='classification', transfer_source="xception"):
+                  freeze=True, task_mode='classification', transfer_source="xception", colour="rgb", pretrain=False):
     start = time.time()
     # Initialize an empty DataFrame to store the merged data
     merged_df = pd.DataFrame(columns=['Epochs', 'Validation Accuracy', 'Setting'])
@@ -158,9 +199,7 @@ def average_train(name, file, runs=5, epochs=10, augment=True, recombinations=10
         hist = train_network(conf_matrix_name=name, epochs=epochs, augment=augment, recombinations=recombinations,
                              transfer=transfer,
                              classmode=classmode, freeze=freeze, task_mode=task_mode,
-                             transfer_source=transfer_source).history
-
-        # TODO: take the returned conf matrices of all runs and average them?
+                             transfer_source=transfer_source, colour=colour, pretrain=pretrain).history
 
         if task_mode == "classification":
 
@@ -184,12 +223,10 @@ def average_train(name, file, runs=5, epochs=10, augment=True, recombinations=10
             epochs_range = list(range(1, len(hist["val_mean_absolute_error"]) + 1))
             epochs_range *= 4
 
-            # TODO: implement the new way of saving the data
-
             val_mae = hist["val_mean_absolute_error"]
-            val_obo = hist["val_obo_accuracy"]
-            val_obh = hist["val_obh_accuracy"]
-            val_obt = hist["val_obt_accuracy"]
+            val_obo = hist["val_obo_accuracy_r"]
+            val_obh = hist["val_obh_accuracy_r"]
+            val_obt = hist["val_obt_accuracy_r"]
 
             values = val_mae + val_obo + val_obh + val_obt
             metrics = ["Validation MAE"] * len(val_mae) + ["Validation Off-By-One Accuracy"] * len(
@@ -210,18 +247,24 @@ def average_train(name, file, runs=5, epochs=10, augment=True, recombinations=10
 
 def ablation():
     # Create DataFrames for different settings
-    file = "regression.csv"
+    file = util.data_path("classmode.csv")
 
     if not os.path.exists(file):
         pd.DataFrame().to_csv(file)
-    runs = 5
-    epochs = 15
+    runs = 1
+    epochs = 5
 
-    average_train("Regression", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=True,
-                  freeze=False, classmode="standard", transfer_source="xception", task_mode='regression')
-
-    average_train("Classification", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=True,
+    average_train("Standard", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=False,
                   freeze=False, classmode="standard", transfer_source="xception", task_mode='classification')
+
+    average_train("Compress End", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=False,
+                  freeze=False, classmode="compressed-end", transfer_source="xception", task_mode='classification')
+
+    average_train("Compress Start", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=False,
+                  freeze=False, classmode="compressed-start", transfer_source="xception", task_mode='classification')
+
+    average_train("Compress Both", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=False,
+                  freeze=False, classmode="compressed-both", transfer_source="xception", task_mode='classification')
 
 
 def add_runs(run_results, file):

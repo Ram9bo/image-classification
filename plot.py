@@ -1,6 +1,7 @@
 import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
+import util
 
 # Example data (replace with your actual DataFrame)
 # merged_all = pd.concat([t1, t2, t3, t4], ignore_index=True)
@@ -8,7 +9,7 @@ import pandas as pd
 # Set seaborn style
 sns.set_style("whitegrid")
 
-data = pd.read_csv("class_mode.csv")
+data = pd.read_csv(util.data_path("classmode.csv"))
 
 # Define the settings you want to exclude
 exclude_settings = ["Halved Classes", "Compressed Outer Classes"]
@@ -38,4 +39,4 @@ plt.subplots_adjust(right=0.75)  # Adjust the right value as needed
 # Show the plot
 # plt.show()
 
-plt.savefig("accs.png")
+plt.savefig(util.data_path("classmode.png"))

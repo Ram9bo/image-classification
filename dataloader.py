@@ -9,6 +9,7 @@ import numpy as np
 import tensorflow as tf
 from PIL import Image
 from tensorflow.keras import datasets
+import shutil
 
 
 def cifar_data():
@@ -16,6 +17,7 @@ def cifar_data():
     Load the cifar10 dataset, in 4 parts, train_in, train_out, test_in, test_out
     """
     return datasets.cifar10.load_data()
+
 
 def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2, translate=True):
     """
@@ -40,7 +42,7 @@ def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2
     return final.shuffle(final.cardinality() * (batch_size + 1), reshuffle_each_iteration=False)
 
 
-def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, classmode="standard"):
+def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, classmode="standard", colour="rgb"):
     """
     Retrieve the dataset in two parts: the augmented training set and the unmodified test set, split according
     to the val_split parameter.
@@ -60,16 +62,45 @@ def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, class
 
         if os.path.isdir(folder_path):
             label = folder_names.index(folder_name)  # Use folder name as the label
+            # TODO: if we modify labels, we may need to rebalance class sampling around the new class counts
             if classmode == "halved":
                 label = label // 2
             elif classmode == "compressed":
                 label = int(tf.clip_by_value(label - 1, 0, 3))
+            elif classmode == "compressed-end":
+                label = {
+                    0: 0,
+                    1: 1,
+                    2: 2,
+                    3: 3,
+                    4: 4,
+                    5: 4
+                }[label]
+            elif classmode == "compressed-start":
+                label = {
+                    0: 0,
+                    1: 1,
+                    2: 1,
+                    3: 2,
+                    4: 3,
+                    5: 4
+                }[label]
+            elif classmode == "compressed-both":
+                label = {
+                    0: 0,
+                    1: 1,
+                    2: 1,
+                    3: 2,
+                    4: 3,
+                    5: 3
+                }[label]
 
             files = list(os.listdir(folder_path))
             random.shuffle(files)
             num_files = len(files)
             max_imgs = 10  # limit the number of used images to ensure class balance (right now the percentual
             # differences are large)
+            # TODO: make this dynamic based on class with the fewest examples
             for i, filename in enumerate(files):
                 if i >= max_imgs:
                     break
@@ -78,6 +109,9 @@ def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, class
                 # Ensure the file is an image (e.g., PNG or JPG)
                 if filename.endswith(('.png', '.jpg', '.jpeg', '.gif')):
                     img = Image.open(file_path)
+
+                    if colour == "gray_scale":
+                        img = img.convert('L')
 
                     # Convert the image to a NumPy array
                     img_array = np.array(img) / 255
@@ -120,6 +154,9 @@ def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, class
     assert len(train_labels) == len(train_images)
     assert len(test_labels) == len(test_images)
 
+    # TODO: implement optional conversion to grayscale (maybe it helps classfication performance, otherwise it could
+    #  at least help with model complexity/runtime performance)
+
     train_images = np.array(train_images)
     test_images = np.array(test_images)
     train_labels = np.array(train_labels)
@@ -131,4 +168,80 @@ def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, class
     if augment:
         train = augment_data(train, batch_size=batch_size)
         # print(f"Augmented training set to {train.cardinality() * batch_size} images")
+    # TODO: check if more shuffling is required/helpful (is already done after augmentation, but maybe do it again here)
     return train, val
+
+
+def ssnombacter_data(val_split=0.5, batch_size=8):
+    """
+    Load the SSNOMBACTER datasets
+    """
+
+    # Define the root directory containing your data
+    data_directory = "data/transfer_data/nombacter"
+
+    # Use the image_dataset_from_directory function with custom label mapping
+    dataset = tf.keras.utils.image_dataset_from_directory(
+        data_directory,
+        labels="inferred",
+        label_mode="int",
+        batch_size=batch_size,
+        image_size=(512, 512),
+        shuffle=True,
+        validation_split=val_split,
+        subset="both",
+        seed=42
+    )
+
+    print(dataset[0].class_names)
+
+    return dataset
+
+
+def reaarange_nombacter():
+    # Define the source directory with the original structure
+    source_directory = "data/transfer_data/SSNOMBACTER/Dataset of TIFF files"
+
+    # Define the target directory where the reorganized data will be saved
+    target_directory = "data/transfer_data/nombacter"
+
+    # Create the target directory if it doesn't exist
+    os.makedirs(target_directory, exist_ok=True)
+
+    class_folders = list(os.listdir(source_directory))
+    # Walk through the source directory and its subdirectories
+    for folder in class_folders:
+        source_folder = os.path.join(source_directory, folder)
+
+        # Define the destination directory for the current file
+        destination_directory = os.path.join(target_directory, folder)
+        os.makedirs(destination_directory, exist_ok=True)
+
+        class_files = []
+
+        for sub_folder in os.listdir(source_folder):
+            sub_path = os.path.join(source_folder, sub_folder)
+            files = [f for f in list(os.listdir(sub_path)) if f.endswith('.tiff')]
+            class_files.extend(files)
+
+            for file in files:
+                tiff_image_path = os.path.join(sub_path, file)
+                # Load the TIFF image
+                tiff_image = Image.open(tiff_image_path)
+
+                # Define the target PNG file path
+                png_image_path = os.path.join(destination_directory, file)
+                png_image_path = os.path.splitext(png_image_path)[0] + ".png"
+
+                # Ensure the target directory exists
+                os.makedirs(os.path.dirname(png_image_path), exist_ok=True)
+
+                # Convert and save the image as PNG
+                tiff_image.save(png_image_path)
+
+    print("Data reorganization completed.")
+
+
+# reaarange_nombacter()
+train, val = ssnombacter_data()
+print(train.cardinality(), val.cardinality())

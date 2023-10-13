@@ -13,46 +13,52 @@ from tensorflow.keras.applications.xception import Xception
 
 
 # TODO: evaluate pretrained models with unfrozen layers, has a huge memory requirement, maybe I can do it at home, maybe not, could (un)freeze just a few layers
-# TODO: separate the final layers/final layer construction into a separate function for maintainability
 
-def obt_accuracy(y_true, y_pred):
-    # Calculate the argmax of predicted values to get the predicted class labels
-    predicted_labels = tf.argmax(y_pred, axis=-1)
+# TODO: make the networks able to switch to grayscale data (at least the custom ones)
 
-    # Cast y_true to the data type of predicted_labels
-    y_true = tf.cast(y_true, predicted_labels.dtype)
-
-    # Calculate the absolute difference between true and predicted class labels
-    absolute_difference = tf.cast(tf.abs(y_true - predicted_labels), tf.float16)
-
-    # Check if the absolute difference is less than or equal to 0.5 using tf.math.less_equal
+def obt_accuracy_r(y_true, y_pred):
     threshold = 0.1
-    correct_predictions = tf.where(absolute_difference < threshold, 1.0, 0.0)
 
-    # Calculate the mean accuracy across all predictions
-    accuracy = tf.reduce_mean(correct_predictions)
+    # Calculate the absolute difference between true labels and predictions
+    absolute_diff = tf.abs(y_true - y_pred)
 
-    return accuracy
+    # Create a binary mask indicating if the absolute difference is within the threshold
+    within_threshold = tf.cast(absolute_diff <= threshold, tf.float32)
+
+    # Calculate the mean of the binary mask, which gives the percentage within the threshold
+    percentage = tf.reduce_mean(within_threshold)
+
+    return percentage
 
 
-def obh_accuracy(y_true, y_pred):
-    # Calculate the argmax of predicted values to get the predicted class labels
-    predicted_labels = tf.argmax(y_pred, axis=-1)
-
-    # Cast y_true to the data type of predicted_labels
-    y_true = tf.cast(y_true, predicted_labels.dtype)
-
-    # Calculate the absolute difference between true and predicted class labels
-    absolute_difference = tf.cast(tf.abs(y_true - predicted_labels), tf.float16)
-
-    # Check if the absolute difference is less than or equal to 0.5 using tf.math.less_equal
+def obh_accuracy_r(y_true, y_pred):
     threshold = 0.5
-    correct_predictions = tf.where(absolute_difference < threshold, 1.0, 0.0)
 
-    # Calculate the mean accuracy across all predictions
-    accuracy = tf.reduce_mean(correct_predictions)
-    # TODO: this shit don't work
-    return accuracy
+    # Calculate the absolute difference between true labels and predictions
+    absolute_diff = tf.abs(y_true - y_pred)
+
+    # Create a binary mask indicating if the absolute difference is within the threshold
+    within_threshold = tf.cast(absolute_diff <= threshold, tf.float32)
+
+    # Calculate the mean of the binary mask, which gives the percentage within the threshold
+    percentage = tf.reduce_mean(within_threshold)
+
+    return percentage
+
+
+def obo_accuracy_r(y_true, y_pred):
+    threshold = 1.0
+
+    # Calculate the absolute difference between true labels and predictions
+    absolute_diff = tf.abs(y_true - y_pred)
+
+    # Create a binary mask indicating if the absolute difference is within the threshold
+    within_threshold = tf.cast(absolute_diff <= threshold, tf.float32)
+
+    # Calculate the mean of the binary mask, which gives the percentage within the threshold
+    percentage = tf.reduce_mean(within_threshold)
+
+    return percentage
 
 
 def obo_accuracy(y_true, y_pred):
@@ -80,7 +86,7 @@ IMG_ROWS = 512
 RGB_CHANNELS = 3
 INPUT_SHAPE = (IMG_ROWS, IMG_COLS, RGB_CHANNELS)
 CLASSIFICATION_METRICS = ["accuracy", obo_accuracy]
-REGRESSION_METRICS = ["mean_absolute_error", obo_accuracy, obh_accuracy, obt_accuracy]
+REGRESSION_METRICS = ["mean_absolute_error", obo_accuracy, obh_accuracy_r, obt_accuracy_r]
 
 
 def add_task_layers(model, num_classes, task_mode):
@@ -113,7 +119,6 @@ def add_task_layers(model, num_classes, task_mode):
         )
 
     return model
-
 
 # TODO: try different resolutions, analyse prediction performance, runtime speed, and minimal model size
 
