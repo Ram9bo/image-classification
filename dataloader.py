@@ -172,7 +172,7 @@ def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, class
     return train, val
 
 
-def ssnombacter_data(val_split=0.5, batch_size=8):
+def ssnombacter_data(val_split=0.2, batch_size=8):
     """
     Load the SSNOMBACTER datasets
     """
@@ -240,8 +240,3 @@ def reaarange_nombacter():
                 tiff_image.save(png_image_path)
 
     print("Data reorganization completed.")
-
-
-# reaarange_nombacter()
-train, val = ssnombacter_data()
-print(train.cardinality(), val.cardinality())

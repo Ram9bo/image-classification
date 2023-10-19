@@ -86,8 +86,11 @@ IMG_ROWS = 512
 RGB_CHANNELS = 3
 INPUT_SHAPE = (IMG_ROWS, IMG_COLS, RGB_CHANNELS)
 CLASSIFICATION_METRICS = ["accuracy", obo_accuracy]
-REGRESSION_METRICS = ["mean_absolute_error", obo_accuracy, obh_accuracy_r, obt_accuracy_r]
+REGRESSION_METRICS = ["mean_absolute_error", obo_accuracy_r, obh_accuracy_r, obt_accuracy_r]
 
+
+# TODO: a model that predicts the three constituent features of the classification
+#  (either alone or as an additional head next to the class)
 
 def add_task_layers(model, num_classes, task_mode):
     if task_mode == "classification":
@@ -118,7 +121,10 @@ def add_task_layers(model, num_classes, task_mode):
             metrics=REGRESSION_METRICS
         )
 
+    model.summary()
+
     return model
+
 
 # TODO: try different resolutions, analyse prediction performance, runtime speed, and minimal model size
 

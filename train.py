@@ -14,6 +14,7 @@ import tensorflow as tf
 
 import dataloader
 import network
+from tensorflow.keras.callbacks import EarlyStopping
 
 print('Available GPUs', tf.config.list_physical_devices('GPU'))
 
@@ -33,13 +34,18 @@ def train_network(conf_matrix_name, epochs=10, augment=True, recombinations=10, 
         num_classes = num_classes // 2
     elif classmode == "compressed":
         num_classes = num_classes - 2
+    elif classmode == "compressed-end" or classmode == "compressed-start":
+        num_classes = 5
+    elif classmode == "compressed-both":
+        num_classes = 4
 
     if task_mode == "regression":
         num_classes = 1
     print(f"Predicting {num_classes} classes")
 
     if pretrain:
-        model = pretrain_model(transfer=transfer, num_classes=num_classes, freeze=freeze, transfer_source=transfer_source)
+        model = pretrain_model(transfer=transfer, num_classes=num_classes, freeze=freeze,
+                               transfer_source=transfer_source)
     else:
         if transfer:
             if transfer_source == "xception":
@@ -60,9 +66,14 @@ def train_network(conf_matrix_name, epochs=10, augment=True, recombinations=10, 
     # TODO: manually pretrain on a dataset other than imagenet (ideally the same sort of microscopy, could also be in
     #  combination with imagenet)
 
-    hist = model.fit(train, epochs=epochs, verbose=1, validation_data=val)
+    # Define an early stopping callback
+    early_stopping = EarlyStopping(
+        monitor='val_accuracy',  # Metric to monitor for improvement
+        patience=epochs,  # Number of epochs with no improvement before stopping
+        restore_best_weights=True  # Restore the best weights when stopping
+    )
 
-    # TODO: after the fitting, the program for some reason initiates another training run with seemingly default parameters which then crashes due to undefined variables being used
+    hist = model.fit(train, epochs=epochs, verbose=1, validation_data=val, callbacks=[early_stopping])
 
     if task_mode == 'classification':
         preds = np.argmax(model.predict(val), axis=1)
@@ -138,12 +149,21 @@ def pretrain_model(transfer=False, num_classes=6, freeze=True, task_mode="classi
         model = network.resnet(num_classes=pretrain_classes, task_mode=task_mode)
 
     train, val = dataloader.ssnombacter_data()
-    hist = model.fit(train, epochs=10, verbose=1, validation_data=val)
+
+    # Define an early stopping callback
+    early_stopping = EarlyStopping(
+        monitor='val_accuracy',  # Metric to monitor for improvement
+        patience=5,  # Number of epochs with no improvement before stopping
+        restore_best_weights=True  # Restore the best weights when stopping
+    )
+
+    hist = model.fit(train, epochs=50, verbose=1, validation_data=val, callbacks=[early_stopping])
 
     model.layers.pop()
     activation = 'softmax' if task_mode == 'classification' else None
     model.layers.append(tf.keras.layers.Dense(num_classes, activation=activation))
 
+    # TODO: Check of the effect of grayscaling our own image in combination with this pretraining
     # TODO: consider cutting off multiple/all dense layers after pretraining
     # TODO: tune the pretraining length (and architecture) a bit
     # TODO: consider unfreezing a larger part of the base model (either just during pretraining or during both stages)
@@ -249,21 +269,20 @@ def ablation():
     # Create DataFrames for different settings
     file = util.data_path("classmode.csv")
 
-    if not os.path.exists(file):
-        pd.DataFrame().to_csv(file)
-    runs = 1
-    epochs = 5
+    pd.DataFrame().to_csv(file)
+    runs = 5
+    epochs = 15
 
-    average_train("Standard", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=False,
+    average_train("Standard", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=True,
                   freeze=False, classmode="standard", transfer_source="xception", task_mode='classification')
 
-    average_train("Compress End", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=False,
-                  freeze=False, classmode="compressed-end", transfer_source="xception", task_mode='classification')
-
-    average_train("Compress Start", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=False,
+    average_train("Compressed Start", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=True,
                   freeze=False, classmode="compressed-start", transfer_source="xception", task_mode='classification')
 
-    average_train("Compress Both", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=False,
+    average_train("Compressed End", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=True,
+                  freeze=False, classmode="compressed-end", transfer_source="xception", task_mode='classification')
+
+    average_train("Compressed Both", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=True,
                   freeze=False, classmode="compressed-both", transfer_source="xception", task_mode='classification')
 
 

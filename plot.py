@@ -12,9 +12,9 @@ sns.set_style("whitegrid")
 data = pd.read_csv(util.data_path("classmode.csv"))
 
 # Define the settings you want to exclude
-exclude_settings = ["Halved Classes", "Compressed Outer Classes"]
+exclude_settings = ["Compress Both", "Compress End", "Compress Start"]
 
-exclude_metrics = ["Validation Off-By-Half Accuracy", "Validation Off-By-Tenth Accuracy"]
+exclude_metrics = ["Validation Off-By-One Accuracy", "Validation Off-By-Tenth Accuracy"]
 
 # Filter the DataFrame to exclude the specified settings
 filtered_data = data[~data['Setting'].isin(exclude_settings)]
