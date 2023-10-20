@@ -10,7 +10,7 @@ import tensorflow as tf
 from PIL import Image
 from tensorflow.keras import datasets
 import shutil
-
+from enums import ClassMode
 
 def cifar_data():
     """
@@ -63,11 +63,7 @@ def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, class
         if os.path.isdir(folder_path):
             label = folder_names.index(folder_name)  # Use folder name as the label
             # TODO: if we modify labels, we may need to rebalance class sampling around the new class counts
-            if classmode == "halved":
-                label = label // 2
-            elif classmode == "compressed":
-                label = int(tf.clip_by_value(label - 1, 0, 3))
-            elif classmode == "compressed-end":
+            if classmode == ClassMode.COMPRESSED_END:
                 label = {
                     0: 0,
                     1: 1,
@@ -76,7 +72,7 @@ def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, class
                     4: 4,
                     5: 4
                 }[label]
-            elif classmode == "compressed-start":
+            elif classmode == ClassMode.COMPRESSED_START:
                 label = {
                     0: 0,
                     1: 1,
@@ -85,7 +81,7 @@ def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, class
                     4: 3,
                     5: 4
                 }[label]
-            elif classmode == "compressed-both":
+            elif classmode == ClassMode.COMPRESSED_BOTH:
                 label = {
                     0: 0,
                     1: 1,
