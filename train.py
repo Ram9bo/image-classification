@@ -1,8 +1,6 @@
 """
 Model training.
 """
-
-import util
 import os
 import time
 
@@ -11,10 +9,11 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import tensorflow as tf
+from tensorflow.keras.callbacks import EarlyStopping
 
 import dataloader
 import network
-from tensorflow.keras.callbacks import EarlyStopping
+import util
 from enums import ClassMode, TaskMode
 
 print('Available GPUs', tf.config.list_physical_devices('GPU'))
@@ -77,28 +76,17 @@ def train_network(conf_matrix_name, epochs=10, augment=True, recombinations=10, 
 
     hist = model.fit(train, epochs=epochs, verbose=1, validation_data=val, callbacks=[early_stopping])
 
-    if task_mode == 'classification':
+    if task_mode == TaskMode.CLASSIFICATION:
         preds = np.argmax(model.predict(val), axis=1)
-    elif task_mode == 'regression':
+    elif task_mode == TaskMode.REGRESSION:
         preds = np.round(model.predict(val), decimals=1).flatten()
+    else:
+        raise KeyError(f"Task mode {task_mode} not recognised.")
 
     # Use the map function to apply the extract_labels function and convert to NumPy array
     true_labels = np.array(list(val.map(extract_labels))).flatten()
     print(preds)
     print(true_labels)
-
-    if task_mode == "classification":
-        conf_matrix = tf.math.confusion_matrix(true_labels, preds)  # / len(true_labels)
-
-        plt.figure(figsize=(8, 6))
-        sns.set(font_scale=1.2)  # Adjust font size
-        sns.heatmap(conf_matrix, annot=True, cmap="Blues", cbar=False,
-                    xticklabels=list(range(6)), yticklabels=list(range(6)))
-        plt.xlabel('Predicted')
-        plt.ylabel('Actual')
-        plt.title('Confusion Matrix')
-        plt.savefig("confusion_matrix.png")
-        plt.close()
 
     correct, obo, incorrect = 0, 0, 0
     for i in range(len(preds)):
@@ -129,29 +117,32 @@ def train_network(conf_matrix_name, epochs=10, augment=True, recombinations=10, 
     plt.title('Confusion Matrix')
 
     # Save the heatmap figure to an image file (e.g., PNG)
-    plt.savefig(conf_matrix_name + ".png")
+    plt.savefig(util.data_path(conf_matrix_name + ".png"))
     plt.close()
     return hist
 
 
-def pretrain_model(transfer=False, num_classes=6, freeze=True, task_mode="classification",
+def pretrain_model(transfer=False, num_classes=6, freeze=True, task_mode=TaskMode.CLASSIFICATION,
                    transfer_source="xception", data="nombacter"):
     pretrain_classes = 15
 
     if transfer:
         if transfer_source == "xception":
-            model = network.xception(num_classes=pretrain_classes, freeze=freeze)
+            net = network.XceptionNetwork(num_classes=pretrain_classes, freeze=freeze, task_mode=task_mode)
+            model = net.model
         elif transfer_source == "efficient":
-            model = network.efficient_net(num_classes=pretrain_classes, freeze=freeze)
+            net = network.EfficientNetNetwork(num_classes=pretrain_classes, freeze=freeze, task_mode=task_mode)
+            model = net.model
         elif transfer_source == "vgg16":
-            model = network.efficient_net(num_classes=pretrain_classes, freeze=freeze)
+            net = network.VGG16Network(num_classes=pretrain_classes, freeze=freeze, task_mode=task_mode)
+            model = net.model
         else:
             raise Exception("Transfer source not recognised")
     else:
-        model = network.resnet(num_classes=pretrain_classes, task_mode=task_mode)
+        net = network.CustomResNetNetwork(num_classes=pretrain_classes, task_mode=task_mode)
+        model = net.model
 
     train, val = dataloader.ssnombacter_data()
-
     # Define an early stopping callback
     early_stopping = EarlyStopping(
         monitor='val_accuracy',  # Metric to monitor for improvement
@@ -159,36 +150,26 @@ def pretrain_model(transfer=False, num_classes=6, freeze=True, task_mode="classi
         restore_best_weights=True  # Restore the best weights when stopping
     )
 
-    hist = model.fit(train, epochs=50, verbose=1, validation_data=val, callbacks=[early_stopping])
+    pretrain_epochs = 1
+    hist = model.fit(train, epochs=pretrain_epochs, verbose=1, validation_data=val, callbacks=[early_stopping])
 
-    model.layers.pop()
-    activation = 'softmax' if task_mode == 'classification' else None
-    model.layers.append(tf.keras.layers.Dense(num_classes, activation=activation))
+    net.num_classes = num_classes
+    net.reset_dense_layers()
 
     # TODO: Check of the effect of grayscaling our own image in combination with this pretraining
     # TODO: consider cutting off multiple/all dense layers after pretraining
     # TODO: tune the pretraining length (and architecture) a bit
     # TODO: consider unfreezing a larger part of the base model (either just during pretraining or during both stages)
 
-    if task_mode == "classification":
-        model.compile(
-            loss='sparse_categorical_crossentropy',
-            optimizer=tf.keras.optimizers.Adam(),
-            metrics=network.CLASSIFICATION_METRICS
-        )
-    elif task_mode == "regression":
-        model.compile(
-            loss='mean_squared_error',
-            optimizer=tf.keras.optimizers.Adam(),
-            metrics=network.REGRESSION_METRICS
-        )
-
-    return model
+    return net.model
 
 
 # TODO: set up a BO-HPO experiment to optimize the architecture and hyperparameters
 
 def run_cifar():
+    """
+    Finetune an Xcpetion model on differently sized subsets of the cifar dataset.
+    """
     merged_df = pd.DataFrame(columns=['Epochs', 'Validation Accuracy', 'Setting'])
     for size in [50, 500, 5000, 50000]:
         for i in range(5):
@@ -215,6 +196,9 @@ def average_train(name, file, runs=5, epochs=10, augment=True, recombinations=10
                   classmode=ClassMode.STANDARD,
                   freeze=True, task_mode=TaskMode.CLASSIFICATION, transfer_source="xception", colour="rgb",
                   pretrain=False):
+    """
+    Perform training runs according to the given parameters and save the results.
+    """
     start = time.time()
     # Initialize an empty DataFrame to store the merged data
     merged_df = pd.DataFrame(columns=['Epochs', 'Validation Accuracy', 'Setting'])
@@ -279,10 +263,13 @@ def ablation():
 
     average_train("Standard", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=True,
                   freeze=False, classmode=ClassMode.STANDARD, transfer_source="xception",
-                  task_mode=TaskMode.CLASSIFICATION)
+                  task_mode=TaskMode.CLASSIFICATION, pretrain=True)
 
 
 def add_runs(run_results, file):
+    """
+    Add the given run results to the given file.
+    """
     if os.path.exists(file):
         existing_data = pd.read_csv(file)
     else:

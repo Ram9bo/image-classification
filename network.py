@@ -52,7 +52,6 @@ class Network(ABC):
 
     def __init__(self, input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, task_mode=TaskMode.CLASSIFICATION,
                  freeze=False):
-
         self.input_shape = input_shape
         self.num_classes = num_classes
         self.task_mode = task_mode
@@ -76,6 +75,28 @@ class Network(ABC):
         self.model.add(Dense(256, activation='relu'))
         self.model.add(Dense(256, activation='relu'))
         self.model.add(Dense(256, activation='relu'))
+        self.model.add(Dense(self.num_classes, activation=self.final_activation))
+
+        self.model.compile(
+            loss=self.loss,
+            optimizer=tf.keras.optimizers.Adam(),
+            metrics=self.metrics
+        )
+
+    def reset_dense_layers(self):
+        for layer in reversed(self.model.layers):
+            if isinstance(layer, tf.keras.layers.Dense):
+                # Create Glorot-initialized weights and zero-initialized biases
+                glorot_weights = tf.keras.initializers.glorot_uniform()(layer.kernel.shape)
+                zero_biases = tf.zeros(layer.bias.shape)
+
+                # Set the layer's weights to the Glorot-initialized weights and zero-initialized biases
+                layer.set_weights([glorot_weights, zero_biases])
+            else:
+                break
+
+        self.model.pop()
+
         self.model.add(Dense(self.num_classes, activation=self.final_activation))
 
         self.model.compile(
@@ -141,7 +162,8 @@ class VGG16Network(Network):
         self.model = Sequential()
         self.model.add(base)
 
-    # TODO: efficient and vgg16 pretrained models do not learn at all right now. Might want to manually figure out how to get them to work and/or include them in the HPO
+    # TODO: efficient pretrained model does not learn at all right now. Might want to manually figure out
+    #  how to get it to work and/or include them in the HPO
 
 
 class CustomCNNNetwork(Network):

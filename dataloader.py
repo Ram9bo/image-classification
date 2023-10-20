@@ -172,7 +172,7 @@ def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, class
     return train, val
 
 
-def ssnombacter_data(val_split=0.2, batch_size=8):
+def ssnombacter_data(val_split=0.1, batch_size=8):
     """
     Load the SSNOMBACTER datasets
     """
