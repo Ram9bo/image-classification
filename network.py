@@ -2,8 +2,10 @@
 Image Classification Network.
 """
 
+from abc import ABC, abstractmethod
+
 import tensorflow as tf
-from keras.layers import Conv2D, MaxPooling2D, Dropout
+from keras.layers import Conv2D, MaxPooling2D
 from keras.layers import Dense, Flatten
 from keras.models import Sequential
 from tensorflow.keras import layers, Model
@@ -11,218 +13,154 @@ from tensorflow.keras.applications import EfficientNetB0
 from tensorflow.keras.applications.resnet50 import ResNet50
 from tensorflow.keras.applications.xception import Xception
 
+from enums import TaskMode
+from metrics import obo_accuracy, obo_accuracy_r, obh_accuracy_r, obt_accuracy_r
 
-# TODO: evaluate pretrained models with unfrozen layers, has a huge memory requirement, maybe I can do it at home, maybe not, could (un)freeze just a few layers
-
-# TODO: make the networks able to switch to grayscale data (at least the custom ones)
-
-def obt_accuracy_r(y_true, y_pred):
-    threshold = 0.1
-
-    # Calculate the absolute difference between true labels and predictions
-    absolute_diff = tf.abs(y_true - y_pred)
-
-    # Create a binary mask indicating if the absolute difference is within the threshold
-    within_threshold = tf.cast(absolute_diff <= threshold, tf.float32)
-
-    # Calculate the mean of the binary mask, which gives the percentage within the threshold
-    percentage = tf.reduce_mean(within_threshold)
-
-    return percentage
-
-
-def obh_accuracy_r(y_true, y_pred):
-    threshold = 0.5
-
-    # Calculate the absolute difference between true labels and predictions
-    absolute_diff = tf.abs(y_true - y_pred)
-
-    # Create a binary mask indicating if the absolute difference is within the threshold
-    within_threshold = tf.cast(absolute_diff <= threshold, tf.float32)
-
-    # Calculate the mean of the binary mask, which gives the percentage within the threshold
-    percentage = tf.reduce_mean(within_threshold)
-
-    return percentage
-
-
-def obo_accuracy_r(y_true, y_pred):
-    threshold = 1.0
-
-    # Calculate the absolute difference between true labels and predictions
-    absolute_diff = tf.abs(y_true - y_pred)
-
-    # Create a binary mask indicating if the absolute difference is within the threshold
-    within_threshold = tf.cast(absolute_diff <= threshold, tf.float32)
-
-    # Calculate the mean of the binary mask, which gives the percentage within the threshold
-    percentage = tf.reduce_mean(within_threshold)
-
-    return percentage
-
-
-def obo_accuracy(y_true, y_pred):
-    # Calculate the argmax of predicted values to get the predicted class labels
-    predicted_labels = tf.argmax(y_pred, axis=-1)
-
-    # Cast y_true to the data type of predicted_labels
-    y_true = tf.cast(y_true, predicted_labels.dtype)
-
-    # Calculate the absolute difference between true and predicted class labels
-    absolute_difference = tf.abs(y_true - predicted_labels)
-
-    # Check if the absolute difference is less than or equal to 1
-    correct_predictions = tf.cast(tf.less_equal(absolute_difference, 1), tf.float32)
-
-    # Calculate the mean accuracy across all predictions
-    accuracy = tf.reduce_mean(correct_predictions)
-
-    return accuracy
-
-
+# Default Constants
 NUM_CLASSES = 6
 IMG_COLS = 512
 IMG_ROWS = 512
 RGB_CHANNELS = 3
 INPUT_SHAPE = (IMG_ROWS, IMG_COLS, RGB_CHANNELS)
-CLASSIFICATION_METRICS = ["accuracy", obo_accuracy]
-REGRESSION_METRICS = ["mean_absolute_error", obo_accuracy_r, obh_accuracy_r, obt_accuracy_r]
 
+# Classmode variable dictionaries
+activations = {
+    TaskMode.CLASSIFICATION: "softmax",
+    TaskMode.REGRESSION: None
+}
+
+metrics = {
+    TaskMode.CLASSIFICATION: ["accuracy", obo_accuracy],
+    TaskMode.REGRESSION: ["mean_absolute_error", obo_accuracy_r, obh_accuracy_r, obt_accuracy_r]
+}
+
+losses = {
+    TaskMode.CLASSIFICATION: 'sparse_categorical_crossentropy',
+    TaskMode.REGRESSION: 'mean_squared_error'
+}
+
+
+class Network(ABC):
+    """
+    Network base class. Determines some variables based on the given parameters, then calls on the subclass to provide
+    the base of the model, before adding the dense layers for classification/regression.
+
+    Model can be accessed through the 'model' property, or its summary printed through the 'summary' method.
+    """
+
+    model = None
+
+    def __init__(self, input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, task_mode=TaskMode.CLASSIFICATION,
+                 freeze=False):
+
+        self.input_shape = input_shape
+        self.num_classes = num_classes
+        self.task_mode = task_mode
+        self.final_activation = activations[task_mode]
+        self.loss = losses[task_mode]
+        self.metrics = metrics[task_mode]
+        self.freeze = freeze
+
+        self.create_base()
+        self.add_dense_layers()
+
+    @abstractmethod
+    def create_base(self):
+        pass
+
+    def summary(self):
+        self.model.summary()
+
+    def add_dense_layers(self):
+        self.model.add(Dense(256, activation='relu'))
+        self.model.add(Dense(256, activation='relu'))
+        self.model.add(Dense(256, activation='relu'))
+        self.model.add(Dense(256, activation='relu'))
+        self.model.add(Dense(self.num_classes, activation=self.final_activation))
+
+        self.model.compile(
+            loss=self.loss,
+            optimizer=tf.keras.optimizers.Adam(),
+            metrics=self.metrics
+        )
+
+
+# TODO: try to unfreeze more layers
+
+# TODO: make the networks able to switch to grayscale data (at least the custom ones)
 
 # TODO: a model that predicts the three constituent features of the classification
 #  (either alone or as an additional head next to the class)
 
-def add_task_layers(model, num_classes, task_mode):
-    if task_mode == "classification":
-        final_activation = 'softmax'
-    elif task_mode == "regression":
-        final_activation = None
-
-    model.add(Dense(256, activation='relu'))
-    # model.add(Dropout(0.1))
-    model.add(Dense(256, activation='relu'))
-    # model.add(Dropout(0.1))
-    model.add(Dense(256, activation='relu'))
-    # model.add(Dropout(0.1))
-    model.add(Dense(256, activation='relu'))
-    # model.add(Dropout(0.1))
-    model.add(Dense(num_classes, activation=final_activation))
-
-    if task_mode == "classification":
-        model.compile(
-            loss='sparse_categorical_crossentropy',
-            optimizer=tf.keras.optimizers.Adam(),
-            metrics=CLASSIFICATION_METRICS
-        )
-    elif task_mode == "regression":
-        model.compile(
-            loss='mean_squared_error',
-            optimizer=tf.keras.optimizers.Adam(),
-            metrics=REGRESSION_METRICS
-        )
-
-    model.summary()
-
-    return model
-
-
 # TODO: try different resolutions, analyse prediction performance, runtime speed, and minimal model size
 
-def xception(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True, task_mode="classification"):
-    base = Xception(include_top=False, input_shape=input_shape, weights='imagenet', pooling='max')
+class XceptionNetwork(Network):
 
-    for layer in base.layers:
-        layer.trainable = False
-    if not freeze:
-        # Unfreeze specific layers
-        for layer in base.layers[-5:]:  # Unfreeze the last 10 layers
-            layer.trainable = True
+    def create_base(self):
+        base = Xception(include_top=False, input_shape=self.input_shape, weights='imagenet', pooling='max')
 
-    model = Sequential()
-    model.add(base)
+        for layer in base.layers:
+            layer.trainable = False
+        if not self.freeze:
+            # Unfreeze specific layers
+            for layer in base.layers[-5:]:  # Unfreeze the last x layers
+                layer.trainable = True
 
-    return add_task_layers(model, num_classes, task_mode)
+        self.model = Sequential()
+        self.model.add(base)
 
 
-def efficient_net(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True, task_mode="classification"):
-    base = EfficientNetB0(include_top=False, input_shape=input_shape, weights='imagenet', pooling='max')
+class EfficientNetNetwork(Network):
 
-    for layer in base.layers:
-        layer.trainable = False
-    if not freeze:
-        # Unfreeze specific layers
-        for layer in base.layers[-5:]:  # Unfreeze the last 10 layers
-            layer.trainable = True
+    def create_base(self):
+        base = EfficientNetB0(include_top=False, input_shape=self.input_shape, weights='imagenet', pooling='max')
 
-    model = Sequential()
-    model.add(base)
+        for layer in base.layers:
+            layer.trainable = False
+        if not self.freeze:
+            # Unfreeze specific layers
+            for layer in base.layers[-5:]:  # Unfreeze the last 10 layers
+                layer.trainable = True
+
+        self.model = Sequential()
+        self.model.add(base)
+
+
+class VGG16Network(Network):
+
+    def create_base(self):
+        base = ResNet50(include_top=False, input_shape=self.input_shape, weights='imagenet', pooling='max')
+
+        for layer in base.layers:
+            layer.trainable = False
+        if not self.freeze:
+            # Unfreeze specific layers
+            for layer in base.layers[-5:]:  # Unfreeze the last 10 layers
+                layer.trainable = True
+
+        self.model = Sequential()
+        self.model.add(base)
 
     # TODO: efficient and vgg16 pretrained models do not learn at all right now. Might want to manually figure out how to get them to work and/or include them in the HPO
 
-    return add_task_layers(model, num_classes, task_mode)
 
+class CustomCNNNetwork(Network):
 
-def vgg16(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=True, task_mode="classification"):
-    base = ResNet50(include_top=False, input_shape=input_shape, weights='imagenet', pooling='max')
+    def create_base(self):
+        self.model = Sequential()
 
-    for layer in base.layers:
-        layer.trainable = False
-    if not freeze:
-        # Unfreeze specific layers
-        for layer in base.layers[-5:]:  # Unfreeze the last 10 layers
-            layer.trainable = True
+        # Apply convolutional layers
+        self.model.add(Conv2D(32, kernel_size=(3, 3),
+                              activation='relu',
+                              input_shape=self.input_shape))
+        self.model.add(MaxPooling2D(pool_size=(2, 2)))
+        self.model.add(Conv2D(32, (3, 3), activation='relu'))
+        self.model.add(MaxPooling2D(pool_size=(2, 2)))
+        self.model.add(Conv2D(32, (3, 3), activation='relu'))
+        self.model.add(MaxPooling2D(pool_size=(2, 2)))
 
-    model = Sequential()
-    model.add(base)
-
-    return add_task_layers(model, num_classes, task_mode)
-
-
-def compile_model(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, task_mode="classification"):
-    """
-    Constructs and compiles a sequential model.
-    """
-    model = Sequential()
-    if task_mode == "classification":
-        final_activation = 'softmax'
-    elif task_mode == "regression":
-        final_activation = None
-
-    # Apply convolutional layers
-    model.add(Conv2D(32, kernel_size=(3, 3),
-                     activation='relu',
-                     input_shape=input_shape))
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-    model.add(Conv2D(32, (3, 3), activation='relu'))
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-    model.add(Conv2D(32, (3, 3), activation='relu'))
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-
-    # Flatten the 2D data
-    model.add(Flatten())
-
-    # Apply dense layers
-    model.add(Dense(128, activation='relu'))
-    model.add(Dropout(0.1))
-    model.add(Dense(128, activation='relu'))
-    model.add(Dropout(0.1))
-    model.add(Dense(128, activation='relu'))
-    model.add(Dropout(0.1))
-    model.add(Dense(num_classes, activation=final_activation))
-
-    if task_mode == "classification":
-        model.compile(
-            loss='sparse_categorical_crossentropy',
-            optimizer=tf.keras.optimizers.Adam(),
-            metrics=CLASSIFICATION_METRICS
-        )
-    elif task_mode == "regression":
-        model.compile(
-            loss='mean_squared_error',
-            optimizer=tf.keras.optimizers.Adam(),
-            metrics=REGRESSION_METRICS
-        )
-    return model
+        # Flatten the 2D data
+        self.model.add(Flatten())
 
 
 # Define the ResNet block
@@ -245,47 +183,25 @@ def resnet_block(x, filters, kernel_size=3, stride=1, conv_shortcut=False):
     return x
 
 
-# Define the ResNet model
-def resnet(input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, task_mode="classification"):
-    # Create the ResNet model
+class CustomResNetNetwork(Network):
 
-    if task_mode == "classification":
-        final_activation = 'softmax'
-    elif task_mode == "regression":
-        final_activation = None
-    input_tensor = layers.Input(shape=input_shape)
-    x = layers.Conv2D(16, 7, strides=2, padding='same')(input_tensor)
-    x = layers.BatchNormalization()(x)
-    x = layers.ReLU()(x)
-    x = layers.MaxPooling2D(3, strides=2)(x)
+    def create_base(self):
 
-    num_blocks_list = [2, 2]
+        input_tensor = layers.Input(shape=self.input_shape)
+        x = layers.Conv2D(16, 7, strides=2, padding='same')(input_tensor)
+        x = layers.BatchNormalization()(x)
+        x = layers.ReLU()(x)
+        x = layers.MaxPooling2D(3, strides=2)(x)
 
-    for stage, num_blocks in enumerate(num_blocks_list):
-        for block in range(num_blocks):
-            stride = 1
-            if stage > 0 and block == 0:
-                stride = 2
-            x = resnet_block(x, 64 * 2 ** stage, stride=stride, conv_shortcut=True)
+        num_blocks_list = [2, 2]
 
-    x = layers.GlobalAveragePooling2D()(x)
-    x = layers.Dense(128, activation='relu')(x)
-    x = layers.Dense(128, activation='relu')(x)
-    x = layers.Dense(num_classes, activation=final_activation)(x)
+        for stage, num_blocks in enumerate(num_blocks_list):
+            for block in range(num_blocks):
+                stride = 1
+                if stage > 0 and block == 0:
+                    stride = 2
+                x = resnet_block(x, 64 * 2 ** stage, stride=stride, conv_shortcut=True)
 
-    model = Model(inputs=input_tensor, outputs=x)
+        x = layers.GlobalAveragePooling2D()(x)
 
-    if task_mode == "classification":
-        model.compile(
-            loss='sparse_categorical_crossentropy',
-            optimizer=tf.keras.optimizers.Adam(),
-            metrics=CLASSIFICATION_METRICS
-        )
-    elif task_mode == "regression":
-        model.compile(
-            loss='mean_squared_error',
-            optimizer=tf.keras.optimizers.Adam(),
-            metrics=REGRESSION_METRICS
-        )
-
-    return model
+        self.model = Model(inputs=input_tensor, outputs=x)

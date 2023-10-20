@@ -15,6 +15,7 @@ import tensorflow as tf
 import dataloader
 import network
 from tensorflow.keras.callbacks import EarlyStopping
+from enums import ClassMode, TaskMode
 
 print('Available GPUs', tf.config.list_physical_devices('GPU'))
 
@@ -26,20 +27,17 @@ def extract_labels(features, labels):
 
 # TODO: ensemble model (based on different splits of the training data)
 
-def train_network(conf_matrix_name, epochs=10, augment=True, recombinations=10, transfer=False, classmode="standard",
+def train_network(conf_matrix_name, epochs=10, augment=True, recombinations=10, transfer=False,
+                  classmode=ClassMode.STANDARD,
                   freeze=True,
-                  task_mode="classification", transfer_source="xception", colour="rgb", pretrain=False):
+                  task_mode=TaskMode.CLASSIFICATION, transfer_source="xception", colour="rgb", pretrain=False):
     num_classes = 6
-    if classmode == "halved":
-        num_classes = num_classes // 2
-    elif classmode == "compressed":
-        num_classes = num_classes - 2
-    elif classmode == "compressed-end" or classmode == "compressed-start":
+    if classmode == ClassMode.COMPRESSED_START or classmode == ClassMode.COMPRESSED_END:
         num_classes = 5
-    elif classmode == "compressed-both":
+    elif classmode == ClassMode.COMPRESSED_BOTH:
         num_classes = 4
 
-    if task_mode == "regression":
+    if task_mode == task_mode.REGRESSION:
         num_classes = 1
     print(f"Predicting {num_classes} classes")
 
@@ -49,15 +47,19 @@ def train_network(conf_matrix_name, epochs=10, augment=True, recombinations=10, 
     else:
         if transfer:
             if transfer_source == "xception":
-                model = network.xception(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
+                net = network.XceptionNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
+                model = net.model
             elif transfer_source == "efficient":
-                model = network.efficient_net(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
+                net = network.EfficientNetNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
+                model = net.model
             elif transfer_source == "vgg16":
-                model = network.efficient_net(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
+                net = network.VGG16Network(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
+                model = net.model
             else:
                 raise Exception("Transfer source not recognised")
         else:
-            model = network.resnet(num_classes=num_classes, task_mode=task_mode)
+            net = network.CustomResNetNetwork(num_classes=num_classes, task_mode=task_mode)
+            model = net.model
 
     train, val = dataloader.all_data(augment=augment, recombinations=recombinations, classmode=classmode, colour=colour)
 
@@ -190,7 +192,7 @@ def run_cifar():
     merged_df = pd.DataFrame(columns=['Epochs', 'Validation Accuracy', 'Setting'])
     for size in [50, 500, 5000, 50000]:
         for i in range(5):
-            model = network.efficient_net(input_shape=(32, 32, 3), num_classes=10)
+            model = network.XceptionNetwork(input_shape=(32, 32, 3), num_classes=10).model
             (cifar_train_x, cifar_train_y), (cifar_test_x, cifar_test_y) = dataloader.cifar_data()
             cifar_train_x = cifar_train_x[:size]
             cifar_train_y = cifar_train_y[:size]
@@ -209,8 +211,10 @@ def run_cifar():
     print(merged_df)
 
 
-def average_train(name, file, runs=5, epochs=10, augment=True, recombinations=10, transfer=False, classmode="standard",
-                  freeze=True, task_mode='classification', transfer_source="xception", colour="rgb", pretrain=False):
+def average_train(name, file, runs=5, epochs=10, augment=True, recombinations=10, transfer=False,
+                  classmode=ClassMode.STANDARD,
+                  freeze=True, task_mode=TaskMode.CLASSIFICATION, transfer_source="xception", colour="rgb",
+                  pretrain=False):
     start = time.time()
     # Initialize an empty DataFrame to store the merged data
     merged_df = pd.DataFrame(columns=['Epochs', 'Validation Accuracy', 'Setting'])
@@ -221,7 +225,7 @@ def average_train(name, file, runs=5, epochs=10, augment=True, recombinations=10
                              classmode=classmode, freeze=freeze, task_mode=task_mode,
                              transfer_source=transfer_source, colour=colour, pretrain=pretrain).history
 
-        if task_mode == "classification":
+        if task_mode == TaskMode.CLASSIFICATION:
 
             # Extract the epoch and validation accuracy values
             epochs_range = list(range(1, len(hist["val_accuracy"]) + 1))
@@ -238,7 +242,7 @@ def average_train(name, file, runs=5, epochs=10, augment=True, recombinations=10
             run_df = pd.DataFrame({'Epochs': epochs_range, 'Value': values,
                                    'Metric': metrics})
             run_df['Setting'] = name  # Add the 'Setting' column with the current setting name
-        elif task_mode == "regression":
+        elif task_mode == TaskMode.REGRESSION:
             # Extract the epoch and validation accuracy values
             epochs_range = list(range(1, len(hist["val_mean_absolute_error"]) + 1))
             epochs_range *= 4
@@ -267,23 +271,15 @@ def average_train(name, file, runs=5, epochs=10, augment=True, recombinations=10
 
 def ablation():
     # Create DataFrames for different settings
-    file = util.data_path("classmode.csv")
+    file = util.data_path("test.csv")
 
     pd.DataFrame().to_csv(file)
-    runs = 5
-    epochs = 15
+    runs = 1
+    epochs = 3
 
     average_train("Standard", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=True,
-                  freeze=False, classmode="standard", transfer_source="xception", task_mode='classification')
-
-    average_train("Compressed Start", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=True,
-                  freeze=False, classmode="compressed-start", transfer_source="xception", task_mode='classification')
-
-    average_train("Compressed End", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=True,
-                  freeze=False, classmode="compressed-end", transfer_source="xception", task_mode='classification')
-
-    average_train("Compressed Both", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=True,
-                  freeze=False, classmode="compressed-both", transfer_source="xception", task_mode='classification')
+                  freeze=False, classmode=ClassMode.STANDARD, transfer_source="xception",
+                  task_mode=TaskMode.CLASSIFICATION)
 
 
 def add_runs(run_results, file):
