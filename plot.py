@@ -9,12 +9,12 @@ import util
 # Set seaborn style
 sns.set_style("whitegrid")
 
-data = pd.read_csv(util.data_path("classmode.csv"))
+data = pd.read_csv(util.data_path("afm-pretrain.csv"))
 
 # Define the settings you want to exclude
-exclude_settings = ["Compress Both", "Compress End", "Compress Start"]
+exclude_settings = []
 
-exclude_metrics = ["Validation Off-By-One Accuracy", "Validation Off-By-Tenth Accuracy"]
+exclude_metrics = []
 
 # Filter the DataFrame to exclude the specified settings
 filtered_data = data[~data['Setting'].isin(exclude_settings)]
@@ -27,11 +27,11 @@ sns.lineplot(data=filtered_data, x='Epochs', y='Value', hue='Setting', style='Me
 
 # Customize the plot labels and title
 plt.xlabel('Epochs')
-plt.ylabel('Validation Accuracy')
-plt.title('Validation Accuracy Over Epochs by Setting')
+plt.ylabel('Metric')
+plt.title('Comparing Simplified Classification Schemes')
 
 # Show the legend outside the plot to the right
-plt.legend(title='Setting', bbox_to_anchor=(1.05, 1), loc='upper left')
+plt.legend(title='', bbox_to_anchor=(1.05, 1), loc='upper left')
 
 # Adjust the layout to provide extra space to the right for the legend
 plt.subplots_adjust(right=0.75)  # Adjust the right value as needed
@@ -39,4 +39,4 @@ plt.subplots_adjust(right=0.75)  # Adjust the right value as needed
 # Show the plot
 # plt.show()
 
-plt.savefig(util.data_path("classmode.png"))
+plt.savefig(util.data_path("afm-pretrain.png"))

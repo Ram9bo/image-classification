@@ -143,13 +143,7 @@ def pretrain_model(transfer=False, num_classes=6, freeze=True, task_mode=TaskMod
     if os.path.exists(os.path.join(save_dir, model_name)):
         print("Loading pre-trained model...")
         model = load_model(os.path.join(save_dir, model_name), custom_objects=custom_objects)
-
-        net = network.XceptionNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
-        # TODO: temporary workaround for mismatch in training, make the saving loading more robust in future
-        net.model = model
-        net.num_classes = num_classes
-        net.reset_dense_layers()
-        return net.model
+        return model
 
     if transfer:
         if transfer_source == "xception":
@@ -178,14 +172,14 @@ def pretrain_model(transfer=False, num_classes=6, freeze=True, task_mode=TaskMod
 
     hist = model.fit(train, epochs=pretrain_epochs, verbose=1, validation_data=val, callbacks=[early_stopping])
 
+    net.num_classes = num_classes
+    net.reset_dense_layers()
+
     # Save the pre-trained model
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     model.save(os.path.join(save_dir, model_name))
     print(f"Pre-trained model saved as {model_name}.")
-
-    net.num_classes = num_classes
-    net.reset_dense_layers()
 
     # TODO: Check the effect of grayscaling our own image in combination with this pretraining
     # TODO: Consider cutting off multiple/all dense layers after pretraining
@@ -293,7 +287,7 @@ def ablation():
     epochs = 15
 
     average_train("Nombacter", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=True,
-                  freeze=True, classmode=ClassMode.STANDARD, transfer_source="xception",
+                  freeze=True, classmode=ClassMode.COMPRESSED_BOTH, transfer_source="xception",
                   task_mode=TaskMode.CLASSIFICATION, pretrain=True)
 
     average_train("Standard", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=True,

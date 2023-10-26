@@ -3,6 +3,7 @@ venv/
 virtual-env/
 data/
 data.zip
+pretrained_models/
 
 
 # Byte-compiled / optimized / DLL files

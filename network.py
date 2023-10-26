@@ -14,7 +14,7 @@ from tensorflow.keras.applications.resnet50 import ResNet50
 from tensorflow.keras.applications.xception import Xception
 
 from enums import TaskMode
-from metrics import obo_accuracy, obo_accuracy_r, obh_accuracy_r, obt_accuracy_r
+from metrics import obo_accuracy, obo_accuracy_r, obh_accuracy_r, obt_accuracy_r, accuracy
 
 # Default Constants
 NUM_CLASSES = 6
@@ -30,7 +30,7 @@ activations = {
 }
 
 metrics = {
-    TaskMode.CLASSIFICATION: ["accuracy", obo_accuracy],
+    TaskMode.CLASSIFICATION: [accuracy, obo_accuracy], # Built-in accuracy is acting up, replacing it with a custom implementation for investigation
     TaskMode.REGRESSION: ["mean_absolute_error", obo_accuracy_r, obh_accuracy_r, obt_accuracy_r]
 }
 
@@ -126,6 +126,8 @@ class XceptionNetwork(Network):
             # Unfreeze specific layers
             for layer in base.layers[-5:]:  # Unfreeze the last x layers
                 layer.trainable = True
+
+        # TODO: turn freeze into an integer, also make it part of the parent class
 
         self.model = Sequential()
         self.model.add(base)

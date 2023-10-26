@@ -6,11 +6,13 @@ import os
 import random
 
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 from PIL import Image
 from tensorflow.keras import datasets
-import shutil
+
 from enums import ClassMode
+
 
 def cifar_data():
     """
@@ -42,12 +44,15 @@ def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2
     return final.shuffle(final.cardinality() * (batch_size + 1), reshuffle_each_iteration=False)
 
 
-def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, classmode="standard", colour="rgb"):
-    """
-    Retrieve the dataset in two parts: the augmented training set and the unmodified test set, split according
-    to the val_split parameter.
-    """
+def load_image(file_path, color_mode):
+    img = Image.open(file_path)
+    if color_mode == "gray_scale":
+        img = img.convert('L')
+    img_array = np.array(img)[:, :, :3] if img.mode == 'RGBA' else np.array(img)
+    return img_array / 255
 
+
+def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, classmode="standard", colour="rgb"):
     base_dir = "data/all_images"
     train_images = []
     train_labels = []
@@ -55,94 +60,40 @@ def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, class
     test_labels = []
 
     folder_names = os.listdir(base_dir)
+
+    images_per_class = determine_max_image_count(base_dir, folder_names)
+
+    # For now, we only equalize between the original classes, not the modified ones.
+
     for folder_name in folder_names:
-        class_images = []
-        permuted_images = []
         folder_path = os.path.join(base_dir, folder_name)
 
         if os.path.isdir(folder_path):
-            label = folder_names.index(folder_name)  # Use folder name as the label
-            # TODO: if we modify labels, we may need to rebalance class sampling around the new class counts
-            if classmode == ClassMode.COMPRESSED_END:
-                label = {
-                    0: 0,
-                    1: 1,
-                    2: 2,
-                    3: 3,
-                    4: 4,
-                    5: 4
-                }[label]
-            elif classmode == ClassMode.COMPRESSED_START:
-                label = {
-                    0: 0,
-                    1: 1,
-                    2: 1,
-                    3: 2,
-                    4: 3,
-                    5: 4
-                }[label]
-            elif classmode == ClassMode.COMPRESSED_BOTH:
-                label = {
-                    0: 0,
-                    1: 1,
-                    2: 1,
-                    3: 2,
-                    4: 3,
-                    5: 3
-                }[label]
+            label = get_label(classmode, folder_name, folder_names)
+
+            class_images = []
+            permuted_images = []
 
             files = list(os.listdir(folder_path))
-            random.shuffle(files)
-            num_files = len(files)
-            max_imgs = 10  # limit the number of used images to ensure class balance (right now the percentual
-            # differences are large)
-            # TODO: make this dynamic based on class with the fewest examples
-            for i, filename in enumerate(files):
-                if i >= max_imgs:
+            images = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
+
+            for i, filename in enumerate(images):
+                if i >= images_per_class:
                     break
                 file_path = os.path.join(folder_path, filename)
 
-                # Ensure the file is an image (e.g., PNG or JPG)
-                if filename.endswith(('.png', '.jpg', '.jpeg', '.gif')):
-                    img = Image.open(file_path)
+                if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
+                    img_array = load_image(file_path, color_mode=colour)
 
-                    if colour == "gray_scale":
-                        img = img.convert('L')
-
-                    # Convert the image to a NumPy array
-                    img_array = np.array(img) / 255
-                    # There is (currently 1) image with 4 channels instead 3, but the 4th value is always 255,
-                    # so we get rid of it
-                    if img_array.shape == (512, 512, 4):
-                        img_array = img_array[:, :, :3]
-
-                    # Append the image and label to the lists
-                    if i < max_imgs * val_split:
+                    if i < images_per_class * val_split:
                         class_images.append(img_array)
-                        permuted_images.append(img_array)  # Always include the originals as well
+                        permuted_images.append(img_array)
                     else:
                         test_images.append(img_array)
                         test_labels.append(label)
 
-            # TODO: implement variable tile sizes and test their impact
-            # Split images into four parts and create some recombinations.
             if recombinations > 0:
-                image_parts = []
-                # Split each image into four parts and append them to the image_parts list
-                for image in class_images:
-                    row_split = np.array_split(image, 2, axis=0)
-                    for part_row in row_split:
-                        col_split = np.array_split(part_row, 2, axis=1)
-                        image_parts.extend(col_split)
-
-                for _ in range(recombinations):
-                    # Randomly sample a combination of four parts
-                    random_combination = random.sample(image_parts, 4)
-
-                    # Create a new image by combining the sampled parts
-                    combined_image = np.hstack(random_combination[:2])
-                    combined_image = np.vstack([combined_image, np.hstack(random_combination[2:])])
-                    permuted_images.append(combined_image)
+                add_recombinations(class_images, permuted_images, recombinations)
 
             train_images.extend(permuted_images)
             train_labels.extend([label] * len(permuted_images))
@@ -150,22 +101,85 @@ def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, class
     assert len(train_labels) == len(train_images)
     assert len(test_labels) == len(test_images)
 
-    # TODO: implement optional conversion to grayscale (maybe it helps classfication performance, otherwise it could
-    #  at least help with model complexity/runtime performance)
-
     train_images = np.array(train_images)
     test_images = np.array(test_images)
     train_labels = np.array(train_labels)
     test_labels = np.array(test_labels)
 
-    train = tf.data.Dataset.from_tensor_slices((train_images, train_labels)).batch(batch_size)
-    val = tf.data.Dataset.from_tensor_slices((test_images, test_labels)).batch(batch_size)
+    train_dataset = tf.data.Dataset.from_tensor_slices((train_images, train_labels)).batch(batch_size)
+    val_dataset = tf.data.Dataset.from_tensor_slices((test_images, test_labels)).batch(batch_size)
 
     if augment:
-        train = augment_data(train, batch_size=batch_size)
-        # print(f"Augmented training set to {train.cardinality() * batch_size} images")
-    # TODO: check if more shuffling is required/helpful (is already done after augmentation, but maybe do it again here)
-    return train, val
+        train_dataset = augment_data(train_dataset, batch_size=batch_size)
+
+    class_counts_train = count_images_per_class(train_dataset)
+    class_counts_val = count_images_per_class(val_dataset)
+    print("Train Dataset Class Counts:", class_counts_train)
+    print("Validation Dataset Class Counts:", class_counts_val)
+
+    return train_dataset, val_dataset
+
+
+def determine_max_image_count(base_dir, folder_names):
+    """
+    Determine the (standard) class with the lowest number of images and return that number.
+    """
+
+    images_per_class = 10
+    for folder_name in folder_names:
+        folder_path = os.path.join(base_dir, folder_name)
+
+        if os.path.isdir(folder_path):
+            files = list(os.listdir(folder_path))
+            images = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
+            img_count = len(images)
+
+            if img_count < images_per_class:
+                images_per_class = img_count
+
+    return images_per_class
+
+
+def add_recombinations(class_images, permuted_images, recombinations):
+    """
+    Add recombinations of the original images to the permutated_images collection.
+    """
+
+    image_parts = []
+    for image in class_images:
+        row_split = np.array_split(image, 2, axis=0)
+        for part_row in row_split:
+            col_split = np.array_split(part_row, 2, axis=1)
+            image_parts.extend(col_split)
+    for _ in range(recombinations):
+        random_combination = random.sample(image_parts, 4)
+        combined_image = np.hstack(random_combination[:2])
+        combined_image = np.vstack([combined_image, np.hstack(random_combination[2:])])
+        permuted_images.append(combined_image)
+
+
+def count_images_per_class(dataset):
+    class_counts = {}
+    for _, labels in dataset.unbatch():
+        label = labels.numpy()
+
+        if label in class_counts:
+            class_counts[label] += 1
+        else:
+            class_counts[label] = 1
+    return class_counts
+
+
+def get_label(classmode, folder_name, folder_names):
+    label = folder_names.index(folder_name)  # Use folder name as the label
+
+    label_mapping = {
+        ClassMode.COMPRESSED_END: {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 4},
+        ClassMode.COMPRESSED_START: {0: 0, 1: 1, 2: 1, 3: 2, 4: 3, 5: 4},
+        ClassMode.COMPRESSED_BOTH: {0: 0, 1: 1, 2: 1, 3: 2, 4: 3, 5: 3}
+    }
+
+    return label_mapping.get(classmode, {}).get(label, label)
 
 
 def ssnombacter_data(val_split=0.1, batch_size=8):
@@ -236,3 +250,66 @@ def reaarange_nombacter():
                 tiff_image.save(png_image_path)
 
     print("Data reorganization completed.")
+
+
+def feature_data(feature="ECM", val_split=0.5, batch_size=2, augment=True):
+    base_dir = "data/all_images"
+    train_images = []
+    train_labels = []
+    test_images = []
+    test_labels = []
+
+    folder_names = os.listdir(base_dir)
+    for folder_name in folder_names:
+
+        folder_path = os.path.join(base_dir, folder_name)
+
+        feature_data = pd.read_csv(f"{base_dir}/{folder_name}/features.csv")
+
+        for i, row in feature_data.iterrows():
+            i = int(i)
+            filename = row["Filename"] + ".png"
+            label = row[feature] / 100
+
+            file_path = os.path.join(folder_path, filename)
+
+            # Ensure the file is an image (e.g., PNG or JPG)
+            if filename.endswith(('.png', '.jpg', '.jpeg', '.gif')):
+                img = Image.open(file_path)
+
+                # Convert the image to a NumPy array
+                img_array = np.array(img) / 255
+                # There is (currently 1) image with 4 channels instead 3, but the 4th value is always 255,
+                # so we get rid of it
+                if img_array.shape == (512, 512, 4):
+                    img_array = img_array[:, :, :3]
+
+                # Append the image and label to the lists
+                if i < 10 * val_split:
+                    train_images.append(img_array)  # Always include the originals as well
+                    train_labels.append(label)
+                else:
+                    test_images.append(img_array)
+                    test_labels.append(label)
+
+    assert len(train_labels) == len(train_images)
+    assert len(test_labels) == len(test_images)
+    print(f"Length train {len(train_images)}")
+
+    # TODO: implement optional conversion to grayscale (maybe it helps classfication performance, otherwise it could
+    #  at least help with model complexity/runtime performance)
+
+    train_images = np.array(train_images)
+    test_images = np.array(test_images)
+    train_labels = np.array(train_labels)
+    test_labels = np.array(test_labels)
+
+    train = (tf.data.Dataset.from_tensor_slices((train_images, train_labels)).batch(batch_size))
+    val = (tf.data.Dataset.from_tensor_slices((test_images, test_labels)).batch(batch_size))
+
+    if augment:
+        train = augment_data(train, batch_size=batch_size)
+
+    train.shuffle(buffer_size=10)
+
+    return train, val
