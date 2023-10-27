@@ -85,7 +85,6 @@ def images(val_split=0.5, recombinations=5, augment=True):
                     class_images.append(img_array)
                     permuted_images.append(img_array)
 
-
             if recombinations > 0:
                 add_recombinations(class_images, permuted_images, recombinations)
 
@@ -95,10 +94,9 @@ def images(val_split=0.5, recombinations=5, augment=True):
 
     return np.array(train_images)
 
-def all_data(val_split=0.5, batch_size=2, recombinations=5, augment=True, classmode="standard", colour="rgb"):
-    base_dir = "data/all_images"
-    train_images = []
-    train_labels = []
+
+def test_data(batch_size=2, classmode="standard", colour="rgb"):
+    base_dir = "data/test_set"
     test_images = []
     test_labels = []
 
@@ -127,24 +125,89 @@ def all_data(val_split=0.5, batch_size=2, recombinations=5, augment=True, classm
 
                 if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
                     img_array = load_image(file_path, color_mode=colour)
+                    class_images.append(img_array)
+                    permuted_images.append(img_array)
 
-                    if i < images_per_class * val_split:
-                        class_images.append(img_array)
-                        permuted_images.append(img_array)
-                    else:
-                        test_images.append(img_array)
-                        test_labels.append(label)
+            test_images.extend(permuted_images)
+            test_labels.extend([label] * len(permuted_images))
 
+    train_dataset = make_data_set(test_images, test_labels, batch_size=batch_size, name="Test")
+
+    return train_dataset
+
+
+def training_data(batch_size=2, recombination_ratio=1, augment=True, classmode="standard", colour="rgb", balance=True):
+    base_dir = "data/train_set"
+    train_images = []
+    train_labels = []
+
+    folder_names = os.listdir(base_dir)
+
+    images_per_class = determine_max_image_count(base_dir, folder_names) if balance else int(1e7)
+
+    # For now, we only equalize between the original classes, not the modified ones.
+
+    for folder_name in folder_names:
+        folder_path = os.path.join(base_dir, folder_name)
+
+        if os.path.isdir(folder_path):
+            label = get_label(classmode, folder_name, folder_names)
+
+            class_images = []
+            permuted_images = []
+
+            files = list(os.listdir(folder_path))
+            images = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
+
+            for i, filename in enumerate(images):
+                if i >= images_per_class:
+                    break
+                file_path = os.path.join(folder_path, filename)
+
+                if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
+                    img_array = load_image(file_path, color_mode=colour)
+                    class_images.append(img_array)
+                    permuted_images.append(img_array)
+
+            recombinations = len(class_images) * recombination_ratio
             if recombinations > 0:
                 add_recombinations(class_images, permuted_images, recombinations)
 
             train_images.extend(permuted_images)
             train_labels.extend([label] * len(permuted_images))
 
-    train_dataset, val_dataset = make_data_sets(augment, batch_size, test_images, test_labels, train_images,
-                                                train_labels)
+    train_dataset = make_data_set(train_images, train_labels, batch_size=batch_size, augment=augment, name="Training")
 
-    return train_dataset, val_dataset
+    return train_dataset
+
+
+def all_data(val_split=0.5, batch_size=2, recombinations=5, augment=True, classmode="standard", colour="rgb",
+             recombination_ratio=1, balance=True):
+    train = training_data(batch_size=batch_size, recombination_ratio=recombination_ratio, augment=augment,
+                               classmode=classmode, balance=balance, colour=colour)
+
+    test = test_data(batch_size=batch_size, classmode=classmode, colour=colour)
+
+    return train, test
+
+
+def make_data_set(images, labels, batch_size=2, augment=False, name=''):
+    assert len(images) == len(labels)
+
+    images = np.array(images)
+    labels = np.array(labels)
+
+    data_set = tf.data.Dataset.from_tensor_slices((images, labels)).batch(batch_size)
+
+    # TODO: perform augmentation before wrapping in dataset (gives more flexibility)
+    if augment:
+        data_set = augment_data(data_set, batch_size=batch_size)
+
+    class_counts = count_images_per_class(data_set)
+
+    print(f"Dataset {name} class counts: {class_counts}")
+
+    return data_set
 
 
 def make_data_sets(augment, batch_size, test_images, test_labels, train_images, train_labels):
@@ -302,7 +365,6 @@ def reaarange_nombacter():
                 tiff_image.save(png_image_path)
 
     print("Data reorganization completed.")
-
 
 
 def feature_data(feature="ECM", val_split=0.5, batch_size=2, augment=True):
