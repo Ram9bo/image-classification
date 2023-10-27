@@ -1,6 +1,5 @@
 import os
-import numpy as np
-from skimage.metrics import structural_similarity as ssim
+
 from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, UpSampling2D
 from tensorflow.keras.models import Model
 from tensorflow.keras.models import load_model
@@ -84,3 +83,6 @@ classification_model.compile(optimizer='adam', loss='sparse_categorical_crossent
 classification_model.summary()
 
 classification_model.fit(train, validation_data=val, epochs=15, batch_size=1)
+
+# TODO: try training an autoencoder on all the unlabeled data I have
+#   could even try to use the feature extractor as a starting point for pretraining on other AFM data, see if that helps
