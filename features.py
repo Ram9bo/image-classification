@@ -1,5 +1,4 @@
 import os
-import random
 
 import numpy as np
 import pandas as pd
@@ -30,7 +29,9 @@ for folder_name in folder_names:
     for i, row in feature_data.iterrows():
         i = int(i)
         filename = row["Filename"] + ".png"
-        label = row["ECM"] / 100
+        label = (row["Material"] / 100,
+                 row["Bacterial cells"] / 100,
+                 row["ECM"] / 100)
 
         file_path = os.path.join(folder_path, filename)
 
@@ -60,6 +61,20 @@ print(f"Length train {len(train_images)}")
 # TODO: implement optional conversion to grayscale (maybe it helps classfication performance, otherwise it could
 #  at least help with model complexity/runtime performance)
 
+# Create a permutation using numpy
+permutation = np.random.permutation(len(train_images))
+
+# Use the same permutation to shuffle both lists
+train_images = [train_images[i] for i in permutation]
+train_labels = [train_labels[i] for i in permutation]
+
+# Create a permutation using numpy
+permutation = np.random.permutation(len(test_images))
+
+# Use the same permutation to shuffle both lists
+test_images = [test_images[i] for i in permutation]
+test_labels = [test_labels[i] for i in permutation]
+
 train_images = np.array(train_images)
 test_images = np.array(test_images)
 train_labels = np.array(train_labels)
@@ -78,4 +93,4 @@ from enums import TaskMode
 
 net = XceptionNetwork(task_mode=TaskMode.REGRESSION, num_classes=1)
 model = net.model
-model.fit(train, epochs=5, validation_data=val)
+model.fit(train, epochs=10, validation_data=val)

@@ -44,7 +44,7 @@ def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2
     return final.shuffle(final.cardinality() * (batch_size + 1), reshuffle_each_iteration=False)
 
 
-def load_image(file_path, color_mode):
+def load_image(file_path, color_mode="rgb"):
     img = Image.open(file_path)
     if color_mode == "gray_scale":
         img = img.convert('L')
@@ -52,7 +52,50 @@ def load_image(file_path, color_mode):
     return img_array / 255
 
 
-def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, classmode="standard", colour="rgb"):
+def images(val_split=0.5, recombinations=5, augment=True):
+    base_dir = "data/all_images"
+
+    train_images = []
+    val_images = []
+
+    folder_names = os.listdir(base_dir)
+
+    images_per_class = 999
+
+    # For now, we only equalize between the original classes, not the modified ones.
+
+    for folder_name in folder_names:
+        folder_path = os.path.join(base_dir, folder_name)
+
+        if os.path.isdir(folder_path):
+            class_images = []
+            permuted_images = []
+
+            files = list(os.listdir(folder_path))
+            images = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
+
+            for i, filename in enumerate(images):
+                if i >= images_per_class:
+                    break
+                file_path = os.path.join(folder_path, filename)
+
+                if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
+                    img_array = load_image(file_path, color_mode="rgb")
+
+                    class_images.append(img_array)
+                    permuted_images.append(img_array)
+
+
+            if recombinations > 0:
+                add_recombinations(class_images, permuted_images, recombinations)
+
+            train_images.extend(permuted_images)
+
+    print(f"Loaded {len(train_images)} autoencoder images")
+
+    return np.array(train_images)
+
+def all_data(val_split=0.5, batch_size=2, recombinations=5, augment=True, classmode="standard", colour="rgb"):
     base_dir = "data/all_images"
     train_images = []
     train_labels = []
@@ -98,25 +141,32 @@ def all_data(val_split=0.5, batch_size=2, recombinations=10, augment=True, class
             train_images.extend(permuted_images)
             train_labels.extend([label] * len(permuted_images))
 
+    train_dataset, val_dataset = make_data_sets(augment, batch_size, test_images, test_labels, train_images,
+                                                train_labels)
+
+    return train_dataset, val_dataset
+
+
+def make_data_sets(augment, batch_size, test_images, test_labels, train_images, train_labels):
+    """
+    Converts the given collections of images and labels to Tensorflow dataset objects. Applies augmentation on the
+    training set if specified. Batches the dataset according to the given batch size.
+    """
+
     assert len(train_labels) == len(train_images)
     assert len(test_labels) == len(test_images)
-
     train_images = np.array(train_images)
     test_images = np.array(test_images)
     train_labels = np.array(train_labels)
     test_labels = np.array(test_labels)
-
     train_dataset = tf.data.Dataset.from_tensor_slices((train_images, train_labels)).batch(batch_size)
     val_dataset = tf.data.Dataset.from_tensor_slices((test_images, test_labels)).batch(batch_size)
-
     if augment:
         train_dataset = augment_data(train_dataset, batch_size=batch_size)
-
     class_counts_train = count_images_per_class(train_dataset)
     class_counts_val = count_images_per_class(val_dataset)
     print("Train Dataset Class Counts:", class_counts_train)
     print("Validation Dataset Class Counts:", class_counts_val)
-
     return train_dataset, val_dataset
 
 
@@ -125,7 +175,7 @@ def determine_max_image_count(base_dir, folder_names):
     Determine the (standard) class with the lowest number of images and return that number.
     """
 
-    images_per_class = 10
+    images_per_class = float('inf')  # Set to positive infinity initially
     for folder_name in folder_names:
         folder_path = os.path.join(base_dir, folder_name)
 
@@ -133,6 +183,8 @@ def determine_max_image_count(base_dir, folder_names):
             files = list(os.listdir(folder_path))
             images = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
             img_count = len(images)
+
+            print(f"{folder_name} has {img_count} images.")
 
             if img_count < images_per_class:
                 images_per_class = img_count
@@ -252,6 +304,7 @@ def reaarange_nombacter():
     print("Data reorganization completed.")
 
 
+
 def feature_data(feature="ECM", val_split=0.5, batch_size=2, augment=True):
     base_dir = "data/all_images"
     train_images = []
@@ -275,14 +328,7 @@ def feature_data(feature="ECM", val_split=0.5, batch_size=2, augment=True):
 
             # Ensure the file is an image (e.g., PNG or JPG)
             if filename.endswith(('.png', '.jpg', '.jpeg', '.gif')):
-                img = Image.open(file_path)
-
-                # Convert the image to a NumPy array
-                img_array = np.array(img) / 255
-                # There is (currently 1) image with 4 channels instead 3, but the 4th value is always 255,
-                # so we get rid of it
-                if img_array.shape == (512, 512, 4):
-                    img_array = img_array[:, :, :3]
+                img_array = load_image(file_path)
 
                 # Append the image and label to the lists
                 if i < 10 * val_split:
@@ -299,17 +345,6 @@ def feature_data(feature="ECM", val_split=0.5, batch_size=2, augment=True):
     # TODO: implement optional conversion to grayscale (maybe it helps classfication performance, otherwise it could
     #  at least help with model complexity/runtime performance)
 
-    train_images = np.array(train_images)
-    test_images = np.array(test_images)
-    train_labels = np.array(train_labels)
-    test_labels = np.array(test_labels)
-
-    train = (tf.data.Dataset.from_tensor_slices((train_images, train_labels)).batch(batch_size))
-    val = (tf.data.Dataset.from_tensor_slices((test_images, test_labels)).batch(batch_size))
-
-    if augment:
-        train = augment_data(train, batch_size=batch_size)
-
-    train.shuffle(buffer_size=10)
+    train, val = make_data_sets(augment, batch_size, test_images, test_labels, train_images, train_labels)
 
     return train, val
