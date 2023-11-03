@@ -44,11 +44,17 @@ def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2
     return final.shuffle(final.cardinality() * (batch_size + 1), reshuffle_each_iteration=False)
 
 
-def load_image(file_path, color_mode="rgb"):
+def load_image(file_path, color_mode="rgb", resize=(256, 256)):
     img = Image.open(file_path)
+
     if color_mode == "gray_scale":
         img = img.convert('L')
-    img_array = np.array(img)[:, :, :3] if img.mode == 'RGBA' else np.array(img)
+        img = Image.merge('RGB', (img, img, img))
+
+    if resize is not None:
+        img = img.resize(resize)
+
+    img_array = np.array(img)
     return img_array / 255
 
 
@@ -95,7 +101,7 @@ def images(val_split=0.5, recombinations=5, augment=True):
     return np.array(train_images)
 
 
-def test_data(batch_size=2, classmode="standard", colour="rgb"):
+def test_data(batch_size=2, classmode="standard", colour="rgb", resize=(256, 256)):
     base_dir = "data/test_set"
     test_images = []
     test_labels = []
@@ -124,7 +130,7 @@ def test_data(batch_size=2, classmode="standard", colour="rgb"):
                 file_path = os.path.join(folder_path, filename)
 
                 if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
-                    img_array = load_image(file_path, color_mode=colour)
+                    img_array = load_image(file_path, color_mode=colour, resize=resize)
                     class_images.append(img_array)
                     permuted_images.append(img_array)
 
@@ -136,7 +142,8 @@ def test_data(batch_size=2, classmode="standard", colour="rgb"):
     return train_dataset
 
 
-def training_data(batch_size=2, recombination_ratio=1, augment=True, classmode="standard", colour="rgb", balance=True):
+def training_data(batch_size=2, recombination_ratio=1.0, augment=True, classmode="standard", colour="rgb", balance=True,
+                  resize=(256, 256)):
     base_dir = "data/train_set"
     train_images = []
     train_labels = []
@@ -165,11 +172,11 @@ def training_data(batch_size=2, recombination_ratio=1, augment=True, classmode="
                 file_path = os.path.join(folder_path, filename)
 
                 if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
-                    img_array = load_image(file_path, color_mode=colour)
+                    img_array = load_image(file_path, color_mode=colour, resize=resize)
                     class_images.append(img_array)
                     permuted_images.append(img_array)
 
-            recombinations = len(class_images) * recombination_ratio
+            recombinations = int(len(class_images) * recombination_ratio)
             if recombinations > 0:
                 add_recombinations(class_images, permuted_images, recombinations)
 
@@ -181,12 +188,12 @@ def training_data(batch_size=2, recombination_ratio=1, augment=True, classmode="
     return train_dataset
 
 
-def all_data(val_split=0.5, batch_size=2, recombinations=5, augment=True, classmode="standard", colour="rgb",
-             recombination_ratio=1, balance=True):
+def all_data(batch_size=2, augment=True, classmode="standard", colour="rgb",
+             recombination_ratio=1, balance=True, resize=(256, 256)):
     train = training_data(batch_size=batch_size, recombination_ratio=recombination_ratio, augment=augment,
-                               classmode=classmode, balance=balance, colour=colour)
+                          classmode=classmode, balance=balance, colour=colour, resize=resize)
 
-    test = test_data(batch_size=batch_size, classmode=classmode, colour=colour)
+    test = test_data(batch_size=batch_size, classmode=classmode, colour=colour, resize=resize)
 
     return train, test
 
@@ -247,7 +254,7 @@ def determine_max_image_count(base_dir, folder_names):
             images = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
             img_count = len(images)
 
-            print(f"{folder_name} has {img_count} images.")
+            # print(f"{folder_name} has {img_count} images.")
 
             if img_count < images_per_class:
                 images_per_class = img_count

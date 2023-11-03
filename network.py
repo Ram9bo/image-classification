@@ -228,4 +228,4 @@ class CustomResNetNetwork(Network):
 
         x = layers.GlobalAveragePooling2D()(x)
 
-        self.model = Model(inputs=input_tensor, outputs=x)
+        self.model = Sequential(Model(inputs=input_tensor, outputs=x))

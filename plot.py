@@ -9,10 +9,12 @@ import util
 # Set seaborn style
 sns.set_style("whitegrid")
 
-data = pd.read_csv(util.data_path("afm-pretrain.csv"))
+name = "resize"
+
+data = pd.read_csv(util.data_path(f"{name}.csv"))
 
 # Define the settings you want to exclude
-exclude_settings = []
+exclude_settings = ["Grayscale - Custom", "RGB - Custom"]
 
 exclude_metrics = []
 
@@ -39,4 +41,4 @@ plt.subplots_adjust(right=0.75)  # Adjust the right value as needed
 # Show the plot
 # plt.show()
 
-plt.savefig(util.data_path("afm-pretrain.png"))
+plt.savefig(util.data_path(f"{name}.png"))

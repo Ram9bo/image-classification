@@ -63,7 +63,7 @@ def train_network(conf_matrix_name, epochs=10, augment=True, recombinations=10, 
     if feature is not None:
         train, val = dataloader.feature_data(feature=feature, augment=augment)
     else:
-        train, val = dataloader.all_data(augment=augment, recombinations=recombinations, classmode=classmode,
+        train, val = dataloader.all_data(augment=augment, classmode=classmode,
                                          colour=colour)
 
     # TODO: include both the presence and the strength of dropout in the HPO, also consider batch normalization, also switch input normalization (to 0-1) on/off

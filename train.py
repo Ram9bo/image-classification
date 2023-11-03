@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import tensorflow as tf
+from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.models import load_model
 
@@ -25,11 +26,11 @@ def extract_labels(features, labels):
     return labels
 
 
-def train_network(conf_matrix_name, epochs=10, augment=True, recombinations=10, transfer=False,
+def train_network(conf_matrix_name, epochs=10, augment=True, transfer=False,
                   classmode=ClassMode.STANDARD,
                   freeze=True,
                   task_mode=TaskMode.CLASSIFICATION, transfer_source="xception", colour="rgb", pretrain=False,
-                  feature=None):
+                  feature=None, balance=True, class_weights=False, recombination_ratio=1.0, resize=(256, 256)):
     num_classes = 6
     if classmode == ClassMode.COMPRESSED_START or classmode == ClassMode.COMPRESSED_END:
         num_classes = 5
@@ -40,36 +41,51 @@ def train_network(conf_matrix_name, epochs=10, augment=True, recombinations=10, 
         num_classes = 1
     print(f"Predicting {num_classes} classes")
 
+    input_shape = network.INPUT_SHAPE
+    if resize is not None:
+        width, height = resize
+        channels = 3 if colour == 'rgb' else 1
+        input_shape = width, height, channels
+
     if pretrain:
         model = pretrain_model(transfer=transfer, num_classes=num_classes, freeze=freeze,
                                transfer_source=transfer_source)
     else:
         if transfer:
             if transfer_source == "xception":
-                net = network.XceptionNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
+                net = network.XceptionNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode,
+                                              input_shape=input_shape)
                 model = net.model
             elif transfer_source == "efficient":
-                net = network.EfficientNetNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
+                net = network.EfficientNetNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode,
+                                                  input_shape=input_shape)
                 model = net.model
             elif transfer_source == "vgg16":
-                net = network.VGG16Network(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
+                net = network.VGG16Network(num_classes=num_classes, freeze=freeze, task_mode=task_mode,
+                                           input_shape=input_shape)
                 model = net.model
             else:
                 raise Exception("Transfer source not recognised")
         else:
-            net = network.CustomResNetNetwork(num_classes=num_classes, task_mode=task_mode)
+            net = network.CustomResNetNetwork(num_classes=num_classes, task_mode=task_mode, input_shape=input_shape)
             model = net.model
 
     if feature is not None:
         train, val = dataloader.feature_data(feature=feature, augment=augment)
     else:
-        train, val = dataloader.all_data(augment=augment, recombinations=recombinations, classmode=classmode,
-                                         colour=colour)
+        train, val = dataloader.all_data(augment=augment, classmode=classmode,
+                                         colour=colour, balance=balance, recombination_ratio=recombination_ratio,
+                                         resize=resize)
 
     # TODO: include both the presence and the strength of dropout in the HPO, also consider batch normalization, also switch input normalization (to 0-1) on/off
 
-    # TODO: manually pretrain on a dataset other than imagenet (ideally the same sort of microscopy, could also be in
-    #  combination with imagenet)
+    class_weights_dict = None
+    if class_weights:
+        # Calculate class weights
+        y_train = np.concatenate([y for x, y in train], axis=0)
+        class_weights_list = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
+        class_weights_dict = dict(enumerate(class_weights_list))
+        print(class_weights_dict)
 
     # Define an early stopping callback
     early_stopping = EarlyStopping(
@@ -79,7 +95,8 @@ def train_network(conf_matrix_name, epochs=10, augment=True, recombinations=10, 
         restore_best_weights=True  # Restore the best weights when stopping
     )
 
-    hist = model.fit(train, epochs=epochs, verbose=1, validation_data=val, callbacks=[early_stopping])
+    hist = model.fit(train, epochs=epochs, verbose=1, validation_data=val, callbacks=[early_stopping],
+                     class_weight=class_weights_dict)
 
     if task_mode == TaskMode.CLASSIFICATION:
         preds = np.argmax(model.predict(val), axis=1)
@@ -223,10 +240,10 @@ def run_cifar():
     print(merged_df)
 
 
-def average_train(name, file, runs=5, epochs=10, augment=True, recombinations=10, transfer=False,
+def average_train(name, file, runs=5, epochs=20, augment=True, recombination_ratio=1.0, transfer=True,
                   classmode=ClassMode.STANDARD,
                   freeze=True, task_mode=TaskMode.CLASSIFICATION, transfer_source="xception", colour="rgb",
-                  pretrain=False, feature=None):
+                  pretrain=False, feature=None, balance=True, class_weights=False, resize=(256, 256)):
     """
     Perform training runs according to the given parameters and save the results.
     """
@@ -235,10 +252,12 @@ def average_train(name, file, runs=5, epochs=10, augment=True, recombinations=10
     merged_df = pd.DataFrame(columns=['Epochs', 'Validation Accuracy', 'Setting'])
 
     for i in range(runs):
-        hist = train_network(conf_matrix_name=name, epochs=epochs, augment=augment, recombinations=recombinations,
+        hist = train_network(conf_matrix_name=name, epochs=epochs, augment=augment,
                              transfer=transfer,
                              classmode=classmode, freeze=freeze, task_mode=task_mode,
-                             transfer_source=transfer_source, colour=colour, pretrain=pretrain, feature=feature).history
+                             transfer_source=transfer_source, colour=colour, pretrain=pretrain, feature=feature,
+                             balance=balance, class_weights=class_weights,
+                             recombination_ratio=recombination_ratio, resize=resize).history
 
         if task_mode == TaskMode.CLASSIFICATION:
 
@@ -286,19 +305,18 @@ def average_train(name, file, runs=5, epochs=10, augment=True, recombinations=10
 
 def ablation():
     # Create DataFrames for different settings
-    file = util.data_path("afm-pretrain.csv")
+    file = util.data_path("resize.csv")
 
     pd.DataFrame().to_csv(file)
     runs = 5
-    epochs = 15
+    epochs = 20
 
-    average_train("Nombacter", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=True,
-                  freeze=True, classmode=ClassMode.STANDARD, transfer_source="xception",
-                  task_mode=TaskMode.CLASSIFICATION, pretrain=True)
-
-    average_train("Standard", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=True,
-                  freeze=True, classmode=ClassMode.STANDARD, transfer_source="xception",
-                  task_mode=TaskMode.CLASSIFICATION, pretrain=False)
+    average_train("(256, 256)", file, runs=runs, epochs=epochs, resize=(256, 256))
+    average_train("(128, 128)", file, runs=runs, epochs=epochs, resize=(128, 128))
+    # mininum size for xception is 71x71
+    # average_train("(64, 64)", file, runs=runs, epochs=epochs, resize=(64, 64))
+    # average_train("(32, 32)", file, runs=runs, epochs=epochs, resize=(32, 32))
+    average_train("(512, 512)", file, runs=runs, epochs=epochs, resize=None)
 
 
 def add_runs(run_results, file):
