@@ -9,7 +9,7 @@ import util
 # Set seaborn style
 sns.set_style("whitegrid")
 
-name = "resize"
+name = "dense"
 
 data = pd.read_csv(util.data_path(f"{name}.csv"))
 

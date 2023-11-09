@@ -51,7 +51,7 @@ class Network(ABC):
     model = None
 
     def __init__(self, input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, task_mode=TaskMode.CLASSIFICATION,
-                 freeze=False):
+                 freeze=False, dense_layers=6, dense_size=128):
         self.input_shape = input_shape
         self.num_classes = num_classes
         self.task_mode = task_mode
@@ -59,6 +59,8 @@ class Network(ABC):
         self.loss = losses[task_mode]
         self.metrics = metrics[task_mode]
         self.freeze = freeze
+        self.dense_layers = dense_layers
+        self.dense_size = dense_size
 
         self.create_base()
         self.add_dense_layers()
@@ -71,10 +73,8 @@ class Network(ABC):
         self.model.summary()
 
     def add_dense_layers(self):
-        self.model.add(Dense(256, activation='relu'))
-        self.model.add(Dense(256, activation='relu'))
-        self.model.add(Dense(256, activation='relu'))
-        self.model.add(Dense(256, activation='relu'))
+        for i in range(self.dense_layers):
+            self.model.add(Dense(self.dense_size, activation='relu'))
         self.model.add(Dense(self.num_classes, activation=self.final_activation))
 
         self.model.compile(

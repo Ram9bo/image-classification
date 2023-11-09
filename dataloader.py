@@ -51,6 +51,10 @@ def load_image(file_path, color_mode="rgb", resize=(256, 256)):
         img = img.convert('L')
         img = Image.merge('RGB', (img, img, img))
 
+    if np.array(img).shape != (512, 512, 3):
+        print("ANOMALOUS IMAGE")
+        print(np.array(img).shape)
+
     if resize is not None:
         img = img.resize(resize)
 
@@ -274,10 +278,15 @@ def add_recombinations(class_images, permuted_images, recombinations):
             col_split = np.array_split(part_row, 2, axis=1)
             image_parts.extend(col_split)
     for _ in range(recombinations):
-        random_combination = random.sample(image_parts, 4)
-        combined_image = np.hstack(random_combination[:2])
-        combined_image = np.vstack([combined_image, np.hstack(random_combination[2:])])
-        permuted_images.append(combined_image)
+        try:
+            random_combination = random.sample(image_parts, 4)
+            combined_image = np.hstack(random_combination[:2])
+            combined_image = np.vstack([combined_image, np.hstack(random_combination[2:])])
+            permuted_images.append(combined_image)
+        except ValueError as e:
+            print(e)
+            print(random_combination.shape)
+            raise e
 
 
 def count_images_per_class(dataset):

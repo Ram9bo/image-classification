@@ -30,7 +30,8 @@ def train_network(conf_matrix_name, epochs=10, augment=True, transfer=False,
                   classmode=ClassMode.STANDARD,
                   freeze=True,
                   task_mode=TaskMode.CLASSIFICATION, transfer_source="xception", colour="rgb", pretrain=False,
-                  feature=None, balance=True, class_weights=False, recombination_ratio=1.0, resize=(256, 256)):
+                  feature=None, balance=True, class_weights=False, recombination_ratio=1.0, resize=(256, 256),
+                  dense_layers=6, dense_size=128):
     num_classes = 6
     if classmode == ClassMode.COMPRESSED_START or classmode == ClassMode.COMPRESSED_END:
         num_classes = 5
@@ -54,20 +55,22 @@ def train_network(conf_matrix_name, epochs=10, augment=True, transfer=False,
         if transfer:
             if transfer_source == "xception":
                 net = network.XceptionNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode,
-                                              input_shape=input_shape)
+                                              input_shape=input_shape, dense_layers=dense_layers, dense_size=dense_size)
                 model = net.model
             elif transfer_source == "efficient":
                 net = network.EfficientNetNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode,
-                                                  input_shape=input_shape)
+                                                  input_shape=input_shape, dense_layers=dense_layers,
+                                                  dense_size=dense_size)
                 model = net.model
             elif transfer_source == "vgg16":
                 net = network.VGG16Network(num_classes=num_classes, freeze=freeze, task_mode=task_mode,
-                                           input_shape=input_shape)
+                                           input_shape=input_shape, dense_layers=dense_layers, dense_size=dense_size)
                 model = net.model
             else:
                 raise Exception("Transfer source not recognised")
         else:
-            net = network.CustomResNetNetwork(num_classes=num_classes, task_mode=task_mode, input_shape=input_shape)
+            net = network.CustomResNetNetwork(num_classes=num_classes, task_mode=task_mode, input_shape=input_shape,
+                                              dense_layers=dense_layers, dense_size=dense_size)
             model = net.model
 
     if feature is not None:
@@ -243,7 +246,8 @@ def run_cifar():
 def average_train(name, file, runs=5, epochs=20, augment=True, recombination_ratio=1.0, transfer=True,
                   classmode=ClassMode.STANDARD,
                   freeze=True, task_mode=TaskMode.CLASSIFICATION, transfer_source="xception", colour="rgb",
-                  pretrain=False, feature=None, balance=True, class_weights=False, resize=(256, 256)):
+                  pretrain=False, feature=None, balance=True, class_weights=False, resize=(256, 256),
+                  dense_layers=6, dense_size=128):
     """
     Perform training runs according to the given parameters and save the results.
     """
@@ -257,7 +261,8 @@ def average_train(name, file, runs=5, epochs=20, augment=True, recombination_rat
                              classmode=classmode, freeze=freeze, task_mode=task_mode,
                              transfer_source=transfer_source, colour=colour, pretrain=pretrain, feature=feature,
                              balance=balance, class_weights=class_weights,
-                             recombination_ratio=recombination_ratio, resize=resize).history
+                             recombination_ratio=recombination_ratio, resize=resize, dense_layers=dense_layers,
+                             dense_size=dense_size).history
 
         if task_mode == TaskMode.CLASSIFICATION:
 
@@ -305,18 +310,19 @@ def average_train(name, file, runs=5, epochs=20, augment=True, recombination_rat
 
 def ablation():
     # Create DataFrames for different settings
-    file = util.data_path("resize.csv")
+    file = util.data_path("dense.csv")
 
     pd.DataFrame().to_csv(file)
     runs = 5
     epochs = 20
 
-    average_train("(256, 256)", file, runs=runs, epochs=epochs, resize=(256, 256))
-    average_train("(128, 128)", file, runs=runs, epochs=epochs, resize=(128, 128))
-    # mininum size for xception is 71x71
-    # average_train("(64, 64)", file, runs=runs, epochs=epochs, resize=(64, 64))
-    # average_train("(32, 32)", file, runs=runs, epochs=epochs, resize=(32, 32))
-    average_train("(512, 512)", file, runs=runs, epochs=epochs, resize=None)
+    average_train("4 - 256", file, runs=runs, epochs=epochs, dense_layers=4, dense_size=256)
+    average_train("2 - 256", file, runs=runs, epochs=epochs, dense_layers=2, dense_size=256)
+    average_train("6 - 256", file, runs=runs, epochs=epochs, dense_layers=6, dense_size=256)
+
+    average_train("4 - 128", file, runs=runs, epochs=epochs, dense_layers=4, dense_size=128)
+    average_train("2 - 128", file, runs=runs, epochs=epochs, dense_layers=2, dense_size=128)
+    average_train("6 - 128", file, runs=runs, epochs=epochs, dense_layers=6, dense_size=128)
 
 
 def add_runs(run_results, file):

@@ -2,19 +2,16 @@
 Model training.
 """
 import os
-import time
 
-import matplotlib.pyplot as plt
+import keras_tuner as kt
 import numpy as np
-import pandas as pd
-import seaborn as sns
 import tensorflow as tf
+from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras.callbacks import EarlyStopping
 from tensorflow.keras.models import load_model
 
 import dataloader
 import network
-import util
 from enums import ClassMode, TaskMode
 
 print('Available GPUs', tf.config.list_physical_devices('GPU'))
@@ -25,11 +22,55 @@ def extract_labels(features, labels):
     return labels
 
 
-def train_network(conf_matrix_name, epochs=10, augment=True, recombinations=10, transfer=False,
+class CustomTuner(kt.BayesianOptimization):
+
+    def run_trial(self, trial, *args, **kwargs):
+        hp = trial.hyperparameters
+
+        # TODO: once we have a crossfold validation implementation, apply that here as well (either instead of or
+        #   in addition to executions per trial
+
+        resize = hp.Choice("resize", [512, 256, 128, 72])
+        epochs = hp.Int("epochs", min_value=1, max_value=30, step=1)
+        augment = hp.Choice("augment", [True, False])
+        transfer = hp.Choice("transfer", [True, False])
+        freeze = hp.Choice("freeze", [True, False])
+        transfer_source = hp.Choice("transfer_source", ["xception", "efficient", "vgg16"])
+        balance = hp.Choice("balance", [True, False])
+        class_weights = hp.Choice("class_weights", [False, True])
+        recombination_ratio = hp.Float("recombination_ratio", min_value=0, max_value=10)
+        dense_layers = hp.Int("dense_layers", min_value=1, max_value=10)
+        dense_size = hp.Choice("dense_size", [8, 16, 32, 64, 128, 256, 512])
+
+        results = []
+
+        for _ in range(self.executions_per_trial):
+            try:
+                results.append(train_network(epochs=epochs,
+                                             augment=augment,
+                                             transfer=transfer,
+                                             freeze=freeze,
+                                             transfer_source=transfer_source,
+                                             balance=balance,
+                                             class_weights=class_weights,
+                                             recombination_ratio=recombination_ratio,
+                                             resize=(resize, resize),
+                                             dense_layers=dense_layers,
+                                             dense_size=dense_size))
+            except Exception as e:
+                print(e)
+                return 1.0
+
+        if len(results) > 1:
+            return sum(results) / len(results)
+
+
+def train_network(epochs=10, augment=True, transfer=False,
                   classmode=ClassMode.STANDARD,
                   freeze=True,
                   task_mode=TaskMode.CLASSIFICATION, transfer_source="xception", colour="rgb", pretrain=False,
-                  feature=None):
+                  feature=None, balance=True, class_weights=False, recombination_ratio=1.0, resize=(256, 256),
+                  dense_layers=6, dense_size=128):
     num_classes = 6
     if classmode == ClassMode.COMPRESSED_START or classmode == ClassMode.COMPRESSED_END:
         num_classes = 5
@@ -40,36 +81,53 @@ def train_network(conf_matrix_name, epochs=10, augment=True, recombinations=10, 
         num_classes = 1
     print(f"Predicting {num_classes} classes")
 
+    input_shape = network.INPUT_SHAPE
+    if resize is not None:
+        width, height = resize
+        channels = 3 if colour == 'rgb' else 1
+        input_shape = width, height, channels
+
     if pretrain:
         model = pretrain_model(transfer=transfer, num_classes=num_classes, freeze=freeze,
                                transfer_source=transfer_source)
     else:
         if transfer:
             if transfer_source == "xception":
-                net = network.XceptionNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
+                net = network.XceptionNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode,
+                                              input_shape=input_shape, dense_layers=dense_layers, dense_size=dense_size)
                 model = net.model
             elif transfer_source == "efficient":
-                net = network.EfficientNetNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
+                net = network.EfficientNetNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode,
+                                                  input_shape=input_shape, dense_layers=dense_layers,
+                                                  dense_size=dense_size)
                 model = net.model
             elif transfer_source == "vgg16":
-                net = network.VGG16Network(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
+                net = network.VGG16Network(num_classes=num_classes, freeze=freeze, task_mode=task_mode,
+                                           input_shape=input_shape, dense_layers=dense_layers, dense_size=dense_size)
                 model = net.model
             else:
                 raise Exception("Transfer source not recognised")
         else:
-            net = network.CustomResNetNetwork(num_classes=num_classes, task_mode=task_mode)
+            net = network.CustomResNetNetwork(num_classes=num_classes, task_mode=task_mode, input_shape=input_shape,
+                                              dense_layers=dense_layers, dense_size=dense_size)
             model = net.model
 
     if feature is not None:
         train, val = dataloader.feature_data(feature=feature, augment=augment)
     else:
         train, val = dataloader.all_data(augment=augment, classmode=classmode,
-                                         colour=colour)
+                                         colour=colour, balance=balance, recombination_ratio=recombination_ratio,
+                                         resize=resize)
 
     # TODO: include both the presence and the strength of dropout in the HPO, also consider batch normalization, also switch input normalization (to 0-1) on/off
 
-    # TODO: manually pretrain on a dataset other than imagenet (ideally the same sort of microscopy, could also be in
-    #  combination with imagenet)
+    class_weights_dict = None
+    if class_weights:
+        # Calculate class weights
+        y_train = np.concatenate([y for x, y in train], axis=0)
+        class_weights_list = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
+        class_weights_dict = dict(enumerate(class_weights_list))
+        print(class_weights_dict)
 
     # Define an early stopping callback
     early_stopping = EarlyStopping(
@@ -79,7 +137,8 @@ def train_network(conf_matrix_name, epochs=10, augment=True, recombinations=10, 
         restore_best_weights=True  # Restore the best weights when stopping
     )
 
-    hist = model.fit(train, epochs=epochs, verbose=1, validation_data=val, callbacks=[early_stopping])
+    hist = model.fit(train, epochs=epochs, verbose=1, validation_data=val, callbacks=[early_stopping],
+                     class_weight=class_weights_dict)
 
     if task_mode == TaskMode.CLASSIFICATION:
         preds = np.argmax(model.predict(val), axis=1)
@@ -106,25 +165,7 @@ def train_network(conf_matrix_name, epochs=10, augment=True, recombinations=10, 
     print(correct, obo, incorrect)
     print(correct / len(preds), obo / len(preds), incorrect / len(preds))
 
-    # Compute the confusion matrix
-    confusion = tf.math.confusion_matrix(
-        labels=true_labels,
-        predictions=preds,
-    )
-
-    # Create a heatmap of the confusion matrix
-    plt.figure(figsize=(8, 6))
-    sns.heatmap(confusion, annot=True, fmt='d', cmap='Blues', cbar=False)
-
-    # Customize labels and title
-    plt.xlabel('Predicted')
-    plt.ylabel('True')
-    plt.title('Confusion Matrix')
-
-    # Save the heatmap figure to an image file (e.g., PNG)
-    plt.savefig(util.data_path(conf_matrix_name + ".png"))
-    plt.close()
-    return hist
+    return 1 - (correct / len(preds))
 
 
 def pretrain_model(transfer=False, num_classes=6, freeze=True, task_mode=TaskMode.CLASSIFICATION,
@@ -143,7 +184,13 @@ def pretrain_model(transfer=False, num_classes=6, freeze=True, task_mode=TaskMod
     if os.path.exists(os.path.join(save_dir, model_name)):
         print("Loading pre-trained model...")
         model = load_model(os.path.join(save_dir, model_name), custom_objects=custom_objects)
-        return model
+
+        net = network.XceptionNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
+        # TODO: temporary workaround for mismatch in training, make the saving loading more robust in future
+        net.model = model
+        net.num_classes = num_classes
+        net.reset_dense_layers()
+        return net.model
 
     if transfer:
         if transfer_source == "xception":
@@ -172,14 +219,14 @@ def pretrain_model(transfer=False, num_classes=6, freeze=True, task_mode=TaskMod
 
     hist = model.fit(train, epochs=pretrain_epochs, verbose=1, validation_data=val, callbacks=[early_stopping])
 
-    net.num_classes = num_classes
-    net.reset_dense_layers()
-
     # Save the pre-trained model
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     model.save(os.path.join(save_dir, model_name))
     print(f"Pre-trained model saved as {model_name}.")
+
+    net.num_classes = num_classes
+    net.reset_dense_layers()
 
     # TODO: Check the effect of grayscaling our own image in combination with this pretraining
     # TODO: Consider cutting off multiple/all dense layers after pretraining
@@ -191,123 +238,15 @@ def pretrain_model(transfer=False, num_classes=6, freeze=True, task_mode=TaskMod
 
 # TODO: set up a BO-HPO experiment to optimize the architecture and hyperparameters
 
-def run_cifar():
-    """
-    Finetune an Xcpetion model on differently sized subsets of the cifar dataset.
-    """
-    merged_df = pd.DataFrame(columns=['Epochs', 'Validation Accuracy', 'Setting'])
-    for size in [50, 500, 5000, 50000]:
-        for i in range(5):
-            model = network.XceptionNetwork(input_shape=(32, 32, 3), num_classes=10).model
-            (cifar_train_x, cifar_train_y), (cifar_test_x, cifar_test_y) = dataloader.cifar_data()
-            cifar_train_x = cifar_train_x[:size]
-            cifar_train_y = cifar_train_y[:size]
 
-            hist = model.fit(x=cifar_train_x, y=cifar_train_y, epochs=30, verbose=1,
-                             validation_data=(cifar_test_x, cifar_test_y)).history
-            epochs_range = range(1, len(hist["val_accuracy"]) + 1)
-            val_accuracy = hist["val_accuracy"]
+tuner = CustomTuner(
+    max_trials=100,
+    overwrite=False,
+    directory="tuning",
+    project_name="biofilm",
+    executions_per_trial=3
+)
 
-            # Create a DataFrame for the current run with a 'Setting' column
-            run_df = pd.DataFrame({'Epochs': epochs_range, 'Validation Accuracy': val_accuracy})
-            run_df['Setting'] = f"cifar_{size}"  # Add the 'Setting' column with the current setting name
-            merged_df = pd.concat([merged_df, run_df], ignore_index=True)
+tuner.search()
 
-    merged_df.to_csv("cifar_sizes.csv")
-    print(merged_df)
-
-
-def average_train(name, file, runs=5, epochs=10, augment=True, recombinations=10, transfer=False,
-                  classmode=ClassMode.STANDARD,
-                  freeze=True, task_mode=TaskMode.CLASSIFICATION, transfer_source="xception", colour="rgb",
-                  pretrain=False, feature=None):
-    """
-    Perform training runs according to the given parameters and save the results.
-    """
-    start = time.time()
-    # Initialize an empty DataFrame to store the merged data
-    merged_df = pd.DataFrame(columns=['Epochs', 'Validation Accuracy', 'Setting'])
-
-    for i in range(runs):
-        hist = train_network(conf_matrix_name=name, epochs=epochs, augment=augment, recombinations=recombinations,
-                             transfer=transfer,
-                             classmode=classmode, freeze=freeze, task_mode=task_mode,
-                             transfer_source=transfer_source, colour=colour, pretrain=pretrain, feature=feature).history
-
-        if task_mode == TaskMode.CLASSIFICATION:
-
-            # Extract the epoch and validation accuracy values
-            epochs_range = list(range(1, len(hist["val_accuracy"]) + 1))
-            epochs_range += epochs_range
-
-            val_accuracy = hist["val_accuracy"]
-            obo_val_accuracy = hist["val_obo_accuracy"]
-
-            metrics = ["Validation Accuracy"] * len(val_accuracy) + ["Validation Off-By-One Accuracy"] * len(
-                obo_val_accuracy)
-            values = val_accuracy + obo_val_accuracy
-
-            # Create a DataFrame for the current run with a 'Setting' column
-            run_df = pd.DataFrame({'Epochs': epochs_range, 'Value': values,
-                                   'Metric': metrics})
-            run_df['Setting'] = name  # Add the 'Setting' column with the current setting name
-        elif task_mode == TaskMode.REGRESSION:
-            # Extract the epoch and validation accuracy values
-            epochs_range = list(range(1, len(hist["val_mean_absolute_error"]) + 1))
-            epochs_range *= 4
-
-            val_mae = hist["val_mean_absolute_error"]
-            val_obo = hist["val_obo_accuracy_r"]
-            val_obh = hist["val_obh_accuracy_r"]
-            val_obt = hist["val_obt_accuracy_r"]
-
-            values = val_mae + val_obo + val_obh + val_obt
-            metrics = ["Validation MAE"] * len(val_mae) + ["Validation Off-By-One Accuracy"] * len(
-                val_obo) + len(val_obh) * ["Validation Off-By-Half Accuracy"] + len(val_obt) * [
-                          "Validation Off-By-Tenth Accuracy"]
-
-            # Create a DataFrame for the current run with a 'Setting' column
-            run_df = pd.DataFrame(
-                {'Epochs': epochs_range, 'Value': values, 'Metric': metrics})
-            run_df['Setting'] = name  # Add the 'Setting' column with the current setting name
-
-        # Concatenate the current run's DataFrame to the merged DataFrame
-        merged_df = pd.concat([merged_df, run_df], ignore_index=True)
-
-    add_runs(merged_df, file)
-    print(f"Finished {runs}  \"{name}\" runs in {(time.time() - start) / 60} minutes")
-
-
-def ablation():
-    # Create DataFrames for different settings
-    file = util.data_path("afm-pretrain.csv")
-
-    pd.DataFrame().to_csv(file)
-    runs = 5
-    epochs = 15
-
-    average_train("Nombacter", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=True,
-                  freeze=True, classmode=ClassMode.COMPRESSED_BOTH, transfer_source="xception",
-                  task_mode=TaskMode.CLASSIFICATION, pretrain=True)
-
-    average_train("Standard", file, runs=runs, epochs=epochs, augment=True, recombinations=5, transfer=True,
-                  freeze=True, classmode=ClassMode.STANDARD, transfer_source="xception",
-                  task_mode=TaskMode.CLASSIFICATION, pretrain=False)
-
-
-def add_runs(run_results, file):
-    """
-    Add the given run results to the given file.
-    """
-    if os.path.exists(file):
-        existing_data = pd.read_csv(file)
-    else:
-        existing_data = pd.DataFrame()
-
-    new_data = pd.concat([existing_data, run_results], ignore_index=True)
-    new_data.to_csv(file, index=False)
-
-    # TODO: something isn't entirely right, one unnamed column still shows up, might just want to manually take the desired columns here
-
-
-ablation()
+print(tuner.get_best_hyperparameters())
