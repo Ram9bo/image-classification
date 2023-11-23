@@ -1,7 +1,7 @@
 """
 Data loading and preparation.
 """
-
+import json
 import os
 import random
 
@@ -10,6 +10,7 @@ import pandas as pd
 import tensorflow as tf
 from PIL import Image
 from tensorflow.keras import datasets
+import re
 
 from enums import ClassMode
 
@@ -21,7 +22,7 @@ def cifar_data():
     return datasets.cifar10.load_data()
 
 
-def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2, translate=True):
+def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2, translate=True, shuffle=True):
     """
     Augment the given dataset according to the given parameters and shuffle the resulting dataset.
     """
@@ -41,7 +42,10 @@ def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2
         # Apply brightness delta
         final = final.concatenate(train.map(lambda x, y: (tf.image.adjust_brightness(x, brightness_delta), y)))
 
-    return final.shuffle(final.cardinality() * (batch_size + 1), reshuffle_each_iteration=False)
+    if shuffle:
+        return final.shuffle(final.cardinality() * (batch_size + 1), reshuffle_each_iteration=False)
+    else:
+        return final
 
 
 def load_image(file_path, color_mode="rgb", resize=(256, 256)):
@@ -51,15 +55,122 @@ def load_image(file_path, color_mode="rgb", resize=(256, 256)):
         img = img.convert('L')
         img = Image.merge('RGB', (img, img, img))
 
-    if np.array(img).shape != (512, 512, 3):
-        print("ANOMALOUS IMAGE")
-        print(np.array(img).shape)
-
     if resize is not None:
         img = img.resize(resize)
 
     img_array = np.array(img)
+
+    w, h, c = img_array.shape
+    if c == 4:
+        print("ANOMALOUS IMAGE")
+        print(img_array.shape)
+        img_array = img_array[:, :, :3]  # Remove the last channel
+
     return img_array / 255
+
+
+def file_path_dict(classmode=ClassMode.STANDARD):
+    """
+    Loads lists of the complete filepaths of all images into a dictionary indexed by label.
+    """
+
+    base_dir = "data/all_images"
+    file_paths = {}
+
+    folder_names = os.listdir(base_dir)
+
+    for folder_name in folder_names:
+        folder_path = os.path.join(base_dir, folder_name)
+        label = get_label(classmode, folder_name, folder_names)
+
+        if not label in file_paths:
+            file_paths[label] = []
+
+        if os.path.isdir(folder_path):
+            files = list(os.listdir(folder_path))
+            image_filenames = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
+            random.shuffle(image_filenames)
+
+            for i, filename in enumerate(image_filenames):
+                file_path = os.path.join(folder_path, filename)
+                file_paths[label].append(file_path)
+
+    return file_paths
+
+
+def folds(classmode=ClassMode.STANDARD, window_size=5, balance=False, max_training=None):
+    """
+    Creates as many folds as possible by finding the least class count and seeing how many window sizes fit in it.
+    Then, the validations set for the fold is taken according to the window size, and the rest is training data.
+    Number of folds is thus least_class_count // window_size
+    """
+
+    file_paths = file_path_dict(classmode)
+
+    folds = {}
+
+    least_class_count = min([len(value) for value in file_paths.values()])
+    quotient, remainder = divmod(least_class_count, window_size)
+
+    for i in range(quotient):
+        fold = {}
+        for label, value in file_paths.items():
+            if label not in fold:
+                fold[label] = {}
+            fold[label]["val"] = value[i * window_size:i * window_size + window_size]
+            total_train_set = [v for v in value if v not in fold[label]["val"]]
+
+            if balance:
+                k = least_class_count - window_size
+                if max_training is not None and window_size <= max_training <= k:
+                    k = max_training
+                fold[label]["train"] = random.choices(total_train_set, k=k)
+            else:
+                fold[label]["train"] = total_train_set
+
+        folds[i] = fold
+
+    return folds
+
+
+def fold_to_data(fold, color, resize=(128, 128), recombination_ratio=4.5, batch_size=2, rotate=True,
+                 flip=True, brightness_delta=0):
+    """
+    Converts the given fold of file paths to training and validation datasets.
+    """
+
+    val_images = []
+    val_labels = []
+
+    train_images = []
+    train_labels = []
+
+    for label, filepaths in fold.items():
+        for path in filepaths["val"]:
+            val_labels.append(label)
+            val_images.append(load_image(path, color_mode=color, resize=resize))
+
+        base_train_images = []
+        class_train_images = []
+
+        for path in filepaths["train"]:
+            img = load_image(path, color_mode=color, resize=resize)
+            class_train_images.append(img)
+            base_train_images.append(img)
+
+        recombinations = int(len(base_train_images) * recombination_ratio)
+        if recombinations > 0:
+            add_recombinations(base_train_images, class_train_images, recombinations)
+
+        train_labels.extend([label] * len(class_train_images))
+        train_images.extend(class_train_images)
+
+    train_data = make_data_set(train_images, train_labels, batch_size=batch_size, rotate=rotate, flip=flip,
+                               brightness_delta=brightness_delta, shuffle=True)
+    val_data = make_data_set(val_images, val_labels, batch_size=batch_size, rotate=rotate, flip=False,
+                             brightness_delta=0, shuffle=False)
+
+    return train_data, val_data
 
 
 def images(val_split=0.5, recombinations=5, augment=True):
@@ -187,7 +298,7 @@ def training_data(batch_size=2, recombination_ratio=1.0, augment=True, classmode
             train_images.extend(permuted_images)
             train_labels.extend([label] * len(permuted_images))
 
-    train_dataset = make_data_set(train_images, train_labels, batch_size=batch_size, augment=augment, name="Training")
+    train_dataset = make_data_set(train_images, train_labels, batch_size=batch_size, name="Training")
 
     return train_dataset
 
@@ -202,7 +313,8 @@ def all_data(batch_size=2, augment=True, classmode="standard", colour="rgb",
     return train, test
 
 
-def make_data_set(images, labels, batch_size=2, augment=False, name=''):
+def make_data_set(images, labels, batch_size=2, name='', rotate=True, flip=True, brightness_delta=0,
+                  shuffle=False):
     assert len(images) == len(labels)
 
     images = np.array(images)
@@ -211,8 +323,8 @@ def make_data_set(images, labels, batch_size=2, augment=False, name=''):
     data_set = tf.data.Dataset.from_tensor_slices((images, labels)).batch(batch_size)
 
     # TODO: perform augmentation before wrapping in dataset (gives more flexibility)
-    if augment:
-        data_set = augment_data(data_set, batch_size=batch_size)
+    data_set = augment_data(data_set, batch_size=batch_size, rotate=rotate, flip=flip,
+                            brightness_delta=brightness_delta, shuffle=shuffle)
 
     class_counts = count_images_per_class(data_set)
 
@@ -302,7 +414,11 @@ def count_images_per_class(dataset):
 
 
 def get_label(classmode, folder_name, folder_names):
-    label = folder_names.index(folder_name)  # Use folder name as the label
+    match = re.search(r'\d+', folder_name)
+    if match:
+        label = int(match.group())
+    else:
+        raise KeyError(f"No number found in folder name: {folder_name}")
 
     label_mapping = {
         ClassMode.COMPRESSED_END: {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 4},

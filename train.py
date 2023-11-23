@@ -1,22 +1,22 @@
 """
 Model training.
 """
+import json
 import os
 import time
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
 import tensorflow as tf
 from sklearn.utils.class_weight import compute_class_weight
-from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from tensorflow.keras.models import load_model
 
 import dataloader
 import network
 import util
 from enums import ClassMode, TaskMode
+from tuner import CustomTuner
 
 print('Available GPUs', tf.config.list_physical_devices('GPU'))
 
@@ -26,12 +26,12 @@ def extract_labels(features, labels):
     return labels
 
 
-def train_network(conf_matrix_name, epochs=10, augment=True, transfer=False,
+def train_network(fold, epochs=10, augment=True, transfer=True,
                   classmode=ClassMode.STANDARD,
                   freeze=True,
                   task_mode=TaskMode.CLASSIFICATION, transfer_source="xception", colour="rgb", pretrain=False,
-                  feature=None, balance=True, class_weights=False, recombination_ratio=1.0, resize=(256, 256),
-                  dense_layers=6, dense_size=128):
+                  feature=None, class_weights=False, recombination_ratio=1.0, resize=(256, 256),
+                  dense_layers=6, dense_size=128, lr=0.001, rotate=True, flip=True, brightness_delta=0, batch_size=2):
     num_classes = 6
     if classmode == ClassMode.COMPRESSED_START or classmode == ClassMode.COMPRESSED_END:
         num_classes = 5
@@ -45,7 +45,7 @@ def train_network(conf_matrix_name, epochs=10, augment=True, transfer=False,
     input_shape = network.INPUT_SHAPE
     if resize is not None:
         width, height = resize
-        channels = 3 if colour == 'rgb' else 1
+        channels = 3
         input_shape = width, height, channels
 
     if pretrain:
@@ -55,30 +55,39 @@ def train_network(conf_matrix_name, epochs=10, augment=True, transfer=False,
         if transfer:
             if transfer_source == "xception":
                 net = network.XceptionNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode,
-                                              input_shape=input_shape, dense_layers=dense_layers, dense_size=dense_size)
+                                              input_shape=input_shape, dense_layers=dense_layers, dense_size=dense_size,
+                                              lr=lr)
                 model = net.model
             elif transfer_source == "efficient":
                 net = network.EfficientNetNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode,
                                                   input_shape=input_shape, dense_layers=dense_layers,
-                                                  dense_size=dense_size)
+                                                  dense_size=dense_size, lr=lr)
                 model = net.model
             elif transfer_source == "vgg16":
                 net = network.VGG16Network(num_classes=num_classes, freeze=freeze, task_mode=task_mode,
-                                           input_shape=input_shape, dense_layers=dense_layers, dense_size=dense_size)
+                                           input_shape=input_shape, dense_layers=dense_layers, dense_size=dense_size,
+                                           lr=lr)
                 model = net.model
+            elif transfer_source == "pathonet":
+                net = network.PathonetNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode,
+                                              input_shape=input_shape, dense_layers=dense_layers, dense_size=dense_size,
+                                              lr=lr)
+                model = net.model
+                resize = (256, 256)
+                # TODO: Pathonet only accepts 256x256, maybe we can add a resizing layer in the network class
             else:
                 raise Exception("Transfer source not recognised")
         else:
             net = network.CustomResNetNetwork(num_classes=num_classes, task_mode=task_mode, input_shape=input_shape,
-                                              dense_layers=dense_layers, dense_size=dense_size)
+                                              dense_layers=dense_layers, dense_size=dense_size, lr=lr)
             model = net.model
 
     if feature is not None:
         train, val = dataloader.feature_data(feature=feature, augment=augment)
     else:
-        train, val = dataloader.all_data(augment=augment, classmode=classmode,
-                                         colour=colour, balance=balance, recombination_ratio=recombination_ratio,
-                                         resize=resize)
+        train, val = dataloader.fold_to_data(fold, color=colour, batch_size=batch_size, resize=resize,
+                                             recombination_ratio=recombination_ratio, rotate=rotate, flip=flip,
+                                             brightness_delta=brightness_delta)
 
     # TODO: include both the presence and the strength of dropout in the HPO, also consider batch normalization, also switch input normalization (to 0-1) on/off
 
@@ -98,8 +107,22 @@ def train_network(conf_matrix_name, epochs=10, augment=True, transfer=False,
         restore_best_weights=True  # Restore the best weights when stopping
     )
 
-    hist = model.fit(train, epochs=epochs, verbose=1, validation_data=val, callbacks=[early_stopping],
+    # Define ModelCheckpoint callback
+    checkpoint_filepath = 'best_model.h5'  # Specify the path to save the best model
+    model_checkpoint_callback = ModelCheckpoint(
+        filepath=checkpoint_filepath,
+        save_weights_only=True,  # Save only the model weights, not the entire model
+        monitor='val_accuracy',  # Monitor validation accuracy
+        mode='max',  # 'max' means save the model when the monitored quantity is maximized
+        save_best_only=True  # Save only the best model
+    )
+
+    hist = model.fit(train, epochs=epochs, verbose=1, validation_data=val,
+                     callbacks=[early_stopping, model_checkpoint_callback],
                      class_weight=class_weights_dict)
+
+    # Load the best model weights
+    model.load_weights(checkpoint_filepath)
 
     if task_mode == TaskMode.CLASSIFICATION:
         preds = np.argmax(model.predict(val), axis=1)
@@ -126,25 +149,7 @@ def train_network(conf_matrix_name, epochs=10, augment=True, transfer=False,
     print(correct, obo, incorrect)
     print(correct / len(preds), obo / len(preds), incorrect / len(preds))
 
-    # Compute the confusion matrix
-    confusion = tf.math.confusion_matrix(
-        labels=true_labels,
-        predictions=preds,
-    )
-
-    # Create a heatmap of the confusion matrix
-    plt.figure(figsize=(8, 6))
-    sns.heatmap(confusion, annot=True, fmt='d', cmap='Blues', cbar=False)
-
-    # Customize labels and title
-    plt.xlabel('Predicted')
-    plt.ylabel('True')
-    plt.title('Confusion Matrix')
-
-    # Save the heatmap figure to an image file (e.g., PNG)
-    plt.savefig(util.data_path(conf_matrix_name + ".png"))
-    plt.close()
-    return hist
+    return hist, correct / len(preds)
 
 
 def pretrain_model(transfer=False, num_classes=6, freeze=True, task_mode=TaskMode.CLASSIFICATION,
@@ -165,7 +170,6 @@ def pretrain_model(transfer=False, num_classes=6, freeze=True, task_mode=TaskMod
         model = load_model(os.path.join(save_dir, model_name), custom_objects=custom_objects)
 
         net = network.XceptionNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode)
-        # TODO: temporary workaround for mismatch in training, make the saving loading more robust in future
         net.model = model
         net.num_classes = num_classes
         net.reset_dense_layers()
@@ -196,7 +200,7 @@ def pretrain_model(transfer=False, num_classes=6, freeze=True, task_mode=TaskMod
         restore_best_weights=True  # Restore the best weights when stopping
     )
 
-    hist = model.fit(train, epochs=pretrain_epochs, verbose=1, validation_data=val, callbacks=[early_stopping])
+    hist = model.fit(train, epochs=pretrain_epochs, verbose=0, validation_data=val, callbacks=[early_stopping])
 
     # Save the pre-trained model
     if not os.path.exists(save_dir):
@@ -215,8 +219,6 @@ def pretrain_model(transfer=False, num_classes=6, freeze=True, task_mode=TaskMod
     return model
 
 
-# TODO: set up a BO-HPO experiment to optimize the architecture and hyperparameters
-
 def run_cifar():
     """
     Finetune an Xcpetion model on differently sized subsets of the cifar dataset.
@@ -229,7 +231,7 @@ def run_cifar():
             cifar_train_x = cifar_train_x[:size]
             cifar_train_y = cifar_train_y[:size]
 
-            hist = model.fit(x=cifar_train_x, y=cifar_train_y, epochs=30, verbose=1,
+            hist = model.fit(x=cifar_train_x, y=cifar_train_y, epochs=30, verbose=0,
                              validation_data=(cifar_test_x, cifar_test_y)).history
             epochs_range = range(1, len(hist["val_accuracy"]) + 1)
             val_accuracy = hist["val_accuracy"]
@@ -246,8 +248,8 @@ def run_cifar():
 def average_train(name, file, runs=5, epochs=20, augment=True, recombination_ratio=1.0, transfer=True,
                   classmode=ClassMode.STANDARD,
                   freeze=True, task_mode=TaskMode.CLASSIFICATION, transfer_source="xception", colour="rgb",
-                  pretrain=False, feature=None, balance=True, class_weights=False, resize=(256, 256),
-                  dense_layers=6, dense_size=128):
+                  pretrain=False, feature=None, balance=True, class_weights=False, resize=512,
+                  dense_layers=4, dense_size=64, lr=0.001, max_training=None):
     """
     Perform training runs according to the given parameters and save the results.
     """
@@ -255,74 +257,125 @@ def average_train(name, file, runs=5, epochs=20, augment=True, recombination_rat
     # Initialize an empty DataFrame to store the merged data
     merged_df = pd.DataFrame(columns=['Epochs', 'Validation Accuracy', 'Setting'])
 
+    # TODO include balance for folds
+
+    full_accs = []
     for i in range(runs):
-        hist = train_network(conf_matrix_name=name, epochs=epochs, augment=augment,
-                             transfer=transfer,
-                             classmode=classmode, freeze=freeze, task_mode=task_mode,
-                             transfer_source=transfer_source, colour=colour, pretrain=pretrain, feature=feature,
-                             balance=balance, class_weights=class_weights,
-                             recombination_ratio=recombination_ratio, resize=resize, dense_layers=dense_layers,
-                             dense_size=dense_size).history
+        folds = dataloader.folds(classmode=classmode, window_size=5, balance=balance, max_training=max_training)
+        fold_accs = []
+        for fold_id, fold in folds.items():
+            hist_object, accuracy = train_network(fold=fold, epochs=epochs, augment=augment,
+                                                  transfer=transfer,
+                                                  classmode=classmode, freeze=freeze, task_mode=task_mode,
+                                                  transfer_source=transfer_source, colour=colour, pretrain=pretrain,
+                                                  feature=feature,
+                                                  class_weights=class_weights,
+                                                  recombination_ratio=recombination_ratio, resize=(resize, resize),
+                                                  dense_layers=dense_layers,
+                                                  dense_size=dense_size, lr=lr)
+            hist = hist_object.history
+            fold_accs.append(accuracy)
 
-        if task_mode == TaskMode.CLASSIFICATION:
+            # TODO: also return the best-weight accuracy averaged across folds, then calculated mean-std over the runs
 
-            # Extract the epoch and validation accuracy values
-            epochs_range = list(range(1, len(hist["val_accuracy"]) + 1))
-            epochs_range += epochs_range
+            if task_mode == TaskMode.CLASSIFICATION:
 
-            val_accuracy = hist["val_accuracy"]
-            obo_val_accuracy = hist["val_obo_accuracy"]
+                # Extract the epoch and validation accuracy values
+                epochs_range = list(range(1, len(hist["val_accuracy"]) + 1))
+                epochs_range += epochs_range
 
-            metrics = ["Validation Accuracy"] * len(val_accuracy) + ["Validation Off-By-One Accuracy"] * len(
-                obo_val_accuracy)
-            values = val_accuracy + obo_val_accuracy
+                val_accuracy = hist["val_accuracy"]
+                obo_val_accuracy = hist["val_obo_accuracy"]
 
-            # Create a DataFrame for the current run with a 'Setting' column
-            run_df = pd.DataFrame({'Epochs': epochs_range, 'Value': values,
-                                   'Metric': metrics})
-            run_df['Setting'] = name  # Add the 'Setting' column with the current setting name
-        elif task_mode == TaskMode.REGRESSION:
-            # Extract the epoch and validation accuracy values
-            epochs_range = list(range(1, len(hist["val_mean_absolute_error"]) + 1))
-            epochs_range *= 4
+                metrics = ["Validation Accuracy"] * len(val_accuracy) + ["Validation Off-By-One Accuracy"] * len(
+                    obo_val_accuracy)
+                values = val_accuracy + obo_val_accuracy
 
-            val_mae = hist["val_mean_absolute_error"]
-            val_obo = hist["val_obo_accuracy_r"]
-            val_obh = hist["val_obh_accuracy_r"]
-            val_obt = hist["val_obt_accuracy_r"]
+                # Create a DataFrame for the current run with a 'Setting' column
+                run_df = pd.DataFrame({'Epochs': epochs_range, 'Value': values,
+                                       'Metric': metrics})
+                run_df['Setting'] = name  # Add the 'Setting' column with the current setting name
+            elif task_mode == TaskMode.REGRESSION:
+                # Extract the epoch and validation accuracy values
+                epochs_range = list(range(1, len(hist["val_mean_absolute_error"]) + 1))
+                epochs_range *= 4
 
-            values = val_mae + val_obo + val_obh + val_obt
-            metrics = ["Validation MAE"] * len(val_mae) + ["Validation Off-By-One Accuracy"] * len(
-                val_obo) + len(val_obh) * ["Validation Off-By-Half Accuracy"] + len(val_obt) * [
-                          "Validation Off-By-Tenth Accuracy"]
+                val_mae = hist["val_mean_absolute_error"]
+                val_obo = hist["val_obo_accuracy_r"]
+                val_obh = hist["val_obh_accuracy_r"]
+                val_obt = hist["val_obt_accuracy_r"]
 
-            # Create a DataFrame for the current run with a 'Setting' column
-            run_df = pd.DataFrame(
-                {'Epochs': epochs_range, 'Value': values, 'Metric': metrics})
-            run_df['Setting'] = name  # Add the 'Setting' column with the current setting name
+                values = val_mae + val_obo + val_obh + val_obt
+                metrics = ["Validation MAE"] * len(val_mae) + ["Validation Off-By-One Accuracy"] * len(
+                    val_obo) + len(val_obh) * ["Validation Off-By-Half Accuracy"] + len(val_obt) * [
+                              "Validation Off-By-Tenth Accuracy"]
 
-        # Concatenate the current run's DataFrame to the merged DataFrame
-        merged_df = pd.concat([merged_df, run_df], ignore_index=True)
+                # Create a DataFrame for the current run with a 'Setting' column
+                run_df = pd.DataFrame(
+                    {'Epochs': epochs_range, 'Value': values, 'Metric': metrics})
+                run_df['Setting'] = name  # Add the 'Setting' column with the current setting name
+
+            # Concatenate the current run's DataFrame to the merged DataFrame
+            merged_df = pd.concat([merged_df, run_df], ignore_index=True)
+
+            print(f"Completed fold {fold_id}")
+        full_accs.extend(fold_accs)
+        print(f"Average accuracy of folds {np.mean(fold_accs)}")
 
     add_runs(merged_df, file)
     print(f"Finished {runs}  \"{name}\" runs in {(time.time() - start) / 60} minutes")
+    print(
+        f"Evaluation of final models for setting {name}: Mean {np.mean(full_accs)}, Standard Deviation {np.std(full_accs)}")
+
+    return np.mean(full_accs), np.std(full_accs), name
 
 
 def ablation():
     # Create DataFrames for different settings
-    file = util.data_path("dense.csv")
+    name = "classmode"
+    file = util.data_path(f"{name}.csv")
 
     pd.DataFrame().to_csv(file)
     runs = 5
     epochs = 20
 
-    average_train("4 - 256", file, runs=runs, epochs=epochs, dense_layers=4, dense_size=256)
-    average_train("2 - 256", file, runs=runs, epochs=epochs, dense_layers=2, dense_size=256)
-    average_train("6 - 256", file, runs=runs, epochs=epochs, dense_layers=6, dense_size=256)
+    tuner = CustomTuner(
+        max_trials=100,
+        overwrite=False,
+        directory="tuning",
+        project_name="biofilm",
+        executions_per_trial=3
+    )
 
-    average_train("4 - 128", file, runs=runs, epochs=epochs, dense_layers=4, dense_size=128)
-    average_train("2 - 128", file, runs=runs, epochs=epochs, dense_layers=2, dense_size=128)
-    average_train("6 - 128", file, runs=runs, epochs=epochs, dense_layers=6, dense_size=128)
+    # Get the best hyperparameters
+    best_hyperparameters = tuner.get_best_hyperparameters()[0].values
+    best_hyperparameters["epochs"] = epochs
+
+    print(best_hyperparameters)
+
+    accs = {}
+
+    acc, std, setting = average_train("Standard", file, runs=runs, **best_hyperparameters, classmode=ClassMode.STANDARD)
+
+    accs[setting] = {"mean": acc, "std": std}
+
+    acc, std, setting = average_train("Compressed Start", file, runs=runs, **best_hyperparameters,
+                                      classmode=ClassMode.COMPRESSED_START)
+
+    accs[setting] = {"mean": acc, "std": std}
+
+    acc, std, setting = average_train("Compressed End", file, runs=runs, **best_hyperparameters,
+                                      classmode=ClassMode.COMPRESSED_END)
+
+    accs[setting] = {"mean": acc, "std": std}
+
+    acc, std, setting = average_train("Compressed Both", file, runs=runs, **best_hyperparameters,
+                                      classmode=ClassMode.COMPRESSED_BOTH)
+
+    accs[setting] = {"mean": acc, "std": std}
+
+    with open(util.data_path(f"{name}.json"), "w") as json_file:
+        json.dump(accs, json_file)
 
 
 def add_runs(run_results, file):
@@ -340,4 +393,5 @@ def add_runs(run_results, file):
     # TODO: something isn't entirely right, one unnamed column still shows up, might just want to manually take the desired columns here
 
 
-ablation()
+if __name__ == "__main__":
+    ablation()

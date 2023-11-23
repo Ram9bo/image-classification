@@ -9,14 +9,14 @@ import util
 # Set seaborn style
 sns.set_style("whitegrid")
 
-name = "dense"
+name = "classmode"
 
 data = pd.read_csv(util.data_path(f"{name}.csv"))
 
 # Define the settings you want to exclude
 exclude_settings = ["Grayscale - Custom", "RGB - Custom"]
 
-exclude_metrics = []
+exclude_metrics = ["Validation Off-By-One Accuracy"]
 
 # Filter the DataFrame to exclude the specified settings
 filtered_data = data[~data['Setting'].isin(exclude_settings)]
@@ -30,7 +30,7 @@ sns.lineplot(data=filtered_data, x='Epochs', y='Value', hue='Setting', style='Me
 # Customize the plot labels and title
 plt.xlabel('Epochs')
 plt.ylabel('Metric')
-plt.title('Comparing Simplified Classification Schemes')
+plt.title('Parameter Tuning')
 
 # Show the legend outside the plot to the right
 plt.legend(title='', bbox_to_anchor=(1.05, 1), loc='upper left')
