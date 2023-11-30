@@ -151,10 +151,17 @@ def fold_to_data(fold, color, resize=(128, 128), recombination_ratio=4.5, batch_
     train_images = []
     train_labels = []
 
+    test_images = []
+    test_labels = []
+
     for label, filepaths in fold.items():
         for path in filepaths["val"]:
             val_labels.append(label)
             val_images.append(load_image(path, color_mode=color, resize=resize))
+
+        for path in filepaths["test"]:
+            test_labels.append(label)
+            test_images.append(load_image(path, color_mode=color, resize=resize))
 
         base_train_images = []
         class_train_images = []
