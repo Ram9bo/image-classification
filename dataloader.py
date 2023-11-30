@@ -115,10 +115,16 @@ def folds(classmode=ClassMode.STANDARD, window_size=5, balance=False, max_traini
     for i in range(quotient):
         fold = {}
         for label, value in file_paths.items():
-            if label not in fold:
-                fold[label] = {}
-            fold[label]["val"] = value[i * window_size:i * window_size + window_size]
-            total_train_set = [v for v in value if v not in fold[label]["val"]]
+            splittable = value[:quotient * window_size]
+            splits = [splittable[i * quotient:i * quotient + window_size] for i in range(quotient)]
+            rest = value[quotient * window_size:]
+
+            print(len(splittable), len(rest))
+
+            fold[label] = {}
+            fold[label]["val"] = splits[i]
+            fold[label]["test"] = splits[(i + 1) % quotient]
+            total_train_set = [v for v in value if v not in fold[label]["val"] and v not in fold[label]["test"]]
 
             if balance:
                 k = least_class_count - window_size
@@ -167,7 +173,7 @@ def fold_to_data(fold, color, resize=(128, 128), recombination_ratio=4.5, batch_
 
     train_data = make_data_set(train_images, train_labels, batch_size=batch_size, rotate=rotate, flip=flip,
                                brightness_delta=brightness_delta, shuffle=True)
-    val_data = make_data_set(val_images, val_labels, batch_size=batch_size, rotate=rotate, flip=False,
+    val_data = make_data_set(val_images, val_labels, batch_size=batch_size, rotate=True, flip=False,
                              brightness_delta=0, shuffle=False)
 
     return train_data, val_data

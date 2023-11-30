@@ -18,18 +18,32 @@ def extract_labels(features, labels):
     return labels
 
 
+def get_best():
+    tuner = CustomTuner(
+        max_trials=100,
+        overwrite=False,
+        directory="tuning",
+        project_name="biofilm",
+        executions_per_trial=3
+    )
+
+    # Get the best hyperparameters
+    best_hyperparameters = tuner.get_best_hyperparameters()[0].values
+    return best_hyperparameters
+
+
 class CustomTuner(kt.BayesianOptimization):
 
     def run_trial(self, trial, *args, **kwargs):
         hp = trial.hyperparameters
 
         resize = hp.Choice("resize", [512, 256, 128, 72], default=128)
-        epochs = hp.Int("epochs", min_value=1, max_value=20, step=1, default=5)
+        epochs = 20
         augment = hp.Choice("augment", [True, False], default=True)
         freeze = hp.Choice("freeze", [True, False], default=True)
         balance = hp.Choice("balance", [True, False], default=True)
         class_weights = hp.Choice("class_weights", [False, True], default=True)
-        recombination_ratio = hp.Float("recombination_ratio", min_value=0.0, max_value=5.0, default=5.0)
+        recombination_ratio = hp.Choice("recombination_ratio", [0.0, 1.0, 2.0, 3.0, 4.0, 5.0], default=1.0)
         dense_layers = hp.Int("dense_layers", min_value=1, max_value=10, default=2)
         dense_size = hp.Choice("dense_size", [8, 16, 32, 64, 128, 256, 512], default=64)
         colour = hp.Choice("colour", ["gray_scale", "rgb"], default="gray_scale")
@@ -38,7 +52,7 @@ class CustomTuner(kt.BayesianOptimization):
         rotate = hp.Choice("rotate", [True, False], default=True)
         flip = hp.Choice("flip", [True, False], default=True)
         brightness_delta = hp.Choice("brightness_delta", [0.0, 0.05, 0.1, 0.2, 0.5], default=0)
-        batch_size = hp.Int("batch_size", min_value=1, max_value=64, default=2)
+        batch_size = hp.Choice("batch_size", [2, 4, 8, 16, 32, 64], default=2)
 
         results = []
 
@@ -73,7 +87,7 @@ if __name__ == "__main__":
         overwrite=False,
         directory="tuning",
         project_name="folded-std",
-        executions_per_trial=5
+        executions_per_trial=3
     )
 
     tuner.search()

@@ -14,9 +14,9 @@ from tensorflow.keras.models import load_model
 
 import dataloader
 import network
+import tuner
 import util
 from enums import ClassMode, TaskMode
-from tuner import CustomTuner
 
 print('Available GPUs', tf.config.list_physical_devices('GPU'))
 
@@ -99,14 +99,6 @@ def train_network(fold, epochs=10, augment=True, transfer=True,
         class_weights_dict = dict(enumerate(class_weights_list))
         print(class_weights_dict)
 
-    # Define an early stopping callback
-    early_stopping = EarlyStopping(
-        monitor='val_accuracy' if task_mode == TaskMode.CLASSIFICATION else 'val_mean_absolute_error',
-        # Metric to monitor for improvement
-        patience=epochs,  # Number of epochs with no improvement before stopping
-        restore_best_weights=True  # Restore the best weights when stopping
-    )
-
     # Define ModelCheckpoint callback
     checkpoint_filepath = 'best_model.h5'  # Specify the path to save the best model
     model_checkpoint_callback = ModelCheckpoint(
@@ -118,7 +110,7 @@ def train_network(fold, epochs=10, augment=True, transfer=True,
     )
 
     hist = model.fit(train, epochs=epochs, verbose=1, validation_data=val,
-                     callbacks=[early_stopping, model_checkpoint_callback],
+                     callbacks=[model_checkpoint_callback],
                      class_weight=class_weights_dict)
 
     # Load the best model weights
@@ -261,7 +253,7 @@ def average_train(name, file, runs=5, epochs=20, augment=True, recombination_rat
 
     full_accs = []
     for i in range(runs):
-        folds = dataloader.folds(classmode=classmode, window_size=5, balance=balance, max_training=max_training)
+        folds = dataloader.folds(classmode=classmode, window_size=3, balance=balance, max_training=max_training)
         fold_accs = []
         for fold_id, fold in folds.items():
             hist_object, accuracy = train_network(fold=fold, epochs=epochs, augment=augment,
@@ -330,54 +322,6 @@ def average_train(name, file, runs=5, epochs=20, augment=True, recombination_rat
     return np.mean(full_accs), np.std(full_accs), name
 
 
-def ablation():
-    # Create DataFrames for different settings
-    name = "classmode"
-    file = util.data_path(f"{name}.csv")
-
-    pd.DataFrame().to_csv(file)
-    runs = 5
-    epochs = 20
-
-    tuner = CustomTuner(
-        max_trials=100,
-        overwrite=False,
-        directory="tuning",
-        project_name="biofilm",
-        executions_per_trial=3
-    )
-
-    # Get the best hyperparameters
-    best_hyperparameters = tuner.get_best_hyperparameters()[0].values
-    best_hyperparameters["epochs"] = epochs
-
-    print(best_hyperparameters)
-
-    accs = {}
-
-    acc, std, setting = average_train("Standard", file, runs=runs, **best_hyperparameters, classmode=ClassMode.STANDARD)
-
-    accs[setting] = {"mean": acc, "std": std}
-
-    acc, std, setting = average_train("Compressed Start", file, runs=runs, **best_hyperparameters,
-                                      classmode=ClassMode.COMPRESSED_START)
-
-    accs[setting] = {"mean": acc, "std": std}
-
-    acc, std, setting = average_train("Compressed End", file, runs=runs, **best_hyperparameters,
-                                      classmode=ClassMode.COMPRESSED_END)
-
-    accs[setting] = {"mean": acc, "std": std}
-
-    acc, std, setting = average_train("Compressed Both", file, runs=runs, **best_hyperparameters,
-                                      classmode=ClassMode.COMPRESSED_BOTH)
-
-    accs[setting] = {"mean": acc, "std": std}
-
-    with open(util.data_path(f"{name}.json"), "w") as json_file:
-        json.dump(accs, json_file)
-
-
 def add_runs(run_results, file):
     """
     Add the given run results to the given file.
@@ -389,9 +333,3 @@ def add_runs(run_results, file):
 
     new_data = pd.concat([existing_data, run_results], ignore_index=True)
     new_data.to_csv(file, index=False)
-
-    # TODO: something isn't entirely right, one unnamed column still shows up, might just want to manually take the desired columns here
-
-
-if __name__ == "__main__":
-    ablation()
