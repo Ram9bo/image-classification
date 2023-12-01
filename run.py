@@ -63,3 +63,4 @@ if __name__ == "__main__":
 # TODO: do a thorough check on file paths and such
 # TODO: if disk size or RAM consumption turns out to be an issue, we can look into pruning
 #   https://www.dlology.com/blog/how-to-compress-your-keras-model-x5-smaller-with-tensorflow-model-optimization/
+# TODO: If I can find the time, try a multi-resolution ensemble

@@ -201,8 +201,8 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
             print(f"Completed fold {fold_id}")
 
         if ensemble:
-            votes, ensemble_acc = majority_vote(all_preds,
-                                                true_labels)  # TODO: test this ensemble thing, if it works build a flag, otherwise remove it
+            votes, ensemble_acc = majority_vote(all_preds, true_labels)
+            # TODO: since we don't need to save the whole models, we can simply always do ensemble eval
             fold_accs.append(ensemble_acc)
             print(f"Ensemble accuracy: {ensemble_acc}, Average solo accuracy {np.mean(solo_accs)}")
         full_accs.extend(fold_accs)

@@ -91,14 +91,6 @@ class Network(ABC):
         )
 
 
-# TODO: try to unfreeze more layers
-
-# TODO: make the networks able to switch to grayscale data (at least the custom ones)
-
-# TODO: a model that predicts the three constituent features of the classification
-#  (either alone or as an additional head next to the class)
-
-# TODO: try different resolutions, analyse prediction performance, runtime speed, and minimal model size
 class XceptionNetwork(Network):
 
     def create_base(self):
@@ -147,9 +139,6 @@ class VGG16Network(Network):
 
         self.model = Sequential()
         self.model.add(base)
-
-    # TODO: efficient pretrained model does not learn at all right now. Might want to manually figure out
-    #  how to get it to work and/or include them in the HPO
 
 
 class CustomCNNNetwork(Network):
