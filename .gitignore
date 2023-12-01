@@ -6,6 +6,7 @@ data.zip
 pretrained_models/
 tuning/
 *.h5
+*.zip
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

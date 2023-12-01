@@ -60,5 +60,6 @@ if __name__ == "__main__":
 # TODO: provide a streamlined way to visualize the evaluation of models at a given/configurable path
 # TODO: logging cleanup, at least get rid of irrelevant prints, make sure everything printed is intuitive and clear, also consider using
 #   logging with different levels (logging module)
+# TODO: comment/documentation cleanup, both adding where needed and removing where obsolete (or rudimentary chatgpt comments)
 # TODO: if disk size or RAM consumption turns out to be an issue, we can look into pruning
 #   https://www.dlology.com/blog/how-to-compress-your-keras-model-x5-smaller-with-tensorflow-model-optimization/
