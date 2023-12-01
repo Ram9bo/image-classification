@@ -12,10 +12,9 @@ from tensorflow.keras import layers, Model
 from tensorflow.keras.applications import EfficientNetB0
 from tensorflow.keras.applications.resnet50 import ResNet50
 from tensorflow.keras.applications.xception import Xception
-from tensorflow.keras.models import load_model
 
 from enums import TaskMode
-from metrics import obo_accuracy, obo_accuracy_r, obh_accuracy_r, obt_accuracy_r
+from metrics import obo_accuracy
 
 # Default Constants
 NUM_CLASSES = 6
@@ -23,24 +22,6 @@ IMG_COLS = 512
 IMG_ROWS = 512
 RGB_CHANNELS = 3
 INPUT_SHAPE = (IMG_ROWS, IMG_COLS, RGB_CHANNELS)
-
-# Classmode variable dictionaries
-activations = {
-    TaskMode.CLASSIFICATION: "softmax",
-    TaskMode.REGRESSION: None
-}
-
-metrics = {
-    TaskMode.CLASSIFICATION: ["accuracy", obo_accuracy],
-    # Built-in accuracy is acting up, replacing it with a custom implementation for investigation
-    TaskMode.REGRESSION: ["mean_absolute_error", obo_accuracy_r, obh_accuracy_r, obt_accuracy_r]
-}
-
-losses = {
-    TaskMode.CLASSIFICATION: 'sparse_categorical_crossentropy',
-    TaskMode.REGRESSION: 'mean_squared_error'
-}
-
 
 class Network(ABC):
     """
@@ -57,9 +38,9 @@ class Network(ABC):
         self.input_shape = input_shape
         self.num_classes = num_classes
         self.task_mode = task_mode
-        self.final_activation = activations[task_mode]
-        self.loss = losses[task_mode]
-        self.metrics = metrics[task_mode]
+        self.final_activation = "softmax"
+        self.loss = "sparse_categorical_crossentropy"
+        self.metrics = ["accuracy", obo_accuracy]
         self.freeze = freeze
         self.dense_layers = dense_layers
         self.dense_size = dense_size
@@ -119,40 +100,6 @@ class Network(ABC):
 #  (either alone or as an additional head next to the class)
 
 # TODO: try different resolutions, analyse prediction performance, runtime speed, and minimal model size
-
-class PathonetNetwork(Network):
-
-    def create_base(self):
-        base = load_model("pretrained_models/PathoNet.hdf5")
-
-        # Find the index where the encoder layers end
-        encoder_end = None
-        for i, layer in enumerate(base.layers):
-            if layer.name == 'concatenate_6':
-                encoder_end = i + 1  # Add 1 to include the identified layer
-                break
-
-        if encoder_end:
-            # Separate the encoder layers
-            encoder_layers = base.layers[:encoder_end]
-
-            # Create a new model containing only the encoder layers
-            base = tf.keras.Model(inputs=base.input, outputs=encoder_layers[-1].output)
-        else:
-            print("Specified layer marking the end of encoder not found.")
-
-        for layer in base.layers:
-            layer.trainable = False
-        if not self.freeze:
-            # Unfreeze specific layers
-            for layer in base.layers[-5:]:  # Unfreeze the last x layers
-                layer.trainable = True
-
-        self.model = Sequential()
-        self.model.add(base)
-        self.model.add(Flatten())
-
-
 class XceptionNetwork(Network):
 
     def create_base(self):

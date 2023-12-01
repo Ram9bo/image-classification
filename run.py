@@ -13,7 +13,6 @@ from train import average_train
 
 print('Available GPUs', tf.config.list_physical_devices('GPU'))
 
-
 def ablation():
     # Create DataFrames for different settings
     name = "ensemble"

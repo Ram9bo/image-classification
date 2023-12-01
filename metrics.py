@@ -1,62 +1,6 @@
 import tensorflow as tf
 
 
-def obt_accuracy_r(y_true, y_pred):
-    """
-    Measures the fraction of predictions where the difference between predicted and true regression labels
-    is at most 0.1
-    """
-    threshold = 0.1
-
-    # Calculate the absolute difference between true labels and predictions
-    absolute_diff = tf.abs(y_true - y_pred)
-
-    # Create a binary mask indicating if the absolute difference is within the threshold
-    within_threshold = tf.cast(absolute_diff <= threshold, tf.float32)
-
-    # Calculate the mean of the binary mask, which gives the percentage within the threshold
-    percentage = tf.reduce_mean(within_threshold)
-
-    return percentage
-
-
-def obh_accuracy_r(y_true, y_pred):
-    """
-    Measures the fraction of predictions where the difference between predicted and true regression labels
-    is at most 0.5
-    """
-    threshold = 0.5
-
-    # Calculate the absolute difference between true labels and predictions
-    absolute_diff = tf.abs(y_true - y_pred)
-
-    # Create a binary mask indicating if the absolute difference is within the threshold
-    within_threshold = tf.cast(absolute_diff <= threshold, tf.float32)
-
-    # Calculate the mean of the binary mask, which gives the percentage within the threshold
-    percentage = tf.reduce_mean(within_threshold)
-
-    return percentage
-
-
-def obo_accuracy_r(y_true, y_pred):
-    """
-    Measures the fraction of predictions where the difference between predicted and true regression labels is at most 1
-    """
-    threshold = 1.0
-
-    # Calculate the absolute difference between true labels and predictions
-    absolute_diff = tf.abs(y_true - y_pred)
-
-    # Create a binary mask indicating if the absolute difference is within the threshold
-    within_threshold = tf.cast(absolute_diff <= threshold, tf.float32)
-
-    # Calculate the mean of the binary mask, which gives the percentage within the threshold
-    percentage = tf.reduce_mean(within_threshold)
-
-    return percentage
-
-
 def obo_accuracy(y_true, y_pred):
     """
     Measures the fraction of predictions where the difference between predicted and true classification labels

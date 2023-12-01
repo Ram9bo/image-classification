@@ -38,8 +38,6 @@ class CustomTuner(kt.BayesianOptimization):
         hp = trial.hyperparameters
 
         resize = hp.Choice("resize", [512, 256, 128, 72], default=128)
-        epochs = 20
-        augment = hp.Choice("augment", [True, False], default=True)
         freeze = hp.Choice("freeze", [True, False], default=True)
         balance = hp.Choice("balance", [True, False], default=True)
         class_weights = hp.Choice("class_weights", [False, True], default=True)
@@ -57,23 +55,26 @@ class CustomTuner(kt.BayesianOptimization):
 
         results = []
 
+        epochs = 20
+
         for _ in range(self.executions_per_trial):
             folds = dataloader.folds(classmode=ClassMode.STANDARD, window_size=5, balance=balance)
             for fold_id, fold in folds.items():
                 try:
                     hist, acc, preds, true_labels = train.train_network(fold=fold, epochs=epochs,
-                                                    augment=augment,
-                                                    freeze=freeze,
-                                                    class_weights=class_weights,
-                                                    recombination_ratio=recombination_ratio,
-                                                    resize=(resize, resize),
-                                                    dense_layers=dense_layers,
-                                                    dense_size=dense_size,
-                                                    colour=colour,
-                                                    lr=learning_rate,
-                                                    transfer_source="xception", rotate=rotate, flip=flip,
-                                                    brightness_delta=brightness_delta, batch_size=batch_size,
-                                                    dropout=dropout)
+                                                                        freeze=freeze,
+                                                                        class_weights=class_weights,
+                                                                        recombination_ratio=recombination_ratio,
+                                                                        resize=(resize, resize),
+                                                                        dense_layers=dense_layers,
+                                                                        dense_size=dense_size,
+                                                                        colour=colour,
+                                                                        lr=learning_rate,
+                                                                        transfer_source="xception", rotate=rotate,
+                                                                        flip=flip,
+                                                                        brightness_delta=brightness_delta,
+                                                                        batch_size=batch_size,
+                                                                        dropout=dropout)
                     results.append(acc)
                 except Exception as e:
                     print(e)

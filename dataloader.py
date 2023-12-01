@@ -1,25 +1,15 @@
 """
 Data loading and preparation.
 """
-import json
 import os
 import random
-
-import numpy as np
-import pandas as pd
-import tensorflow as tf
-from PIL import Image
-from tensorflow.keras import datasets
 import re
 
+import numpy as np
+import tensorflow as tf
+from PIL import Image
+
 from enums import ClassMode
-
-
-def cifar_data():
-    """
-    Load the cifar10 dataset, in 4 parts, train_in, train_out, test_in, test_out
-    """
-    return datasets.cifar10.load_data()
 
 
 def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2, translate=True, shuffle=True):
@@ -31,7 +21,6 @@ def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2
     if rotate:
         # Apply rotations of 90, 180, and 270 degrees
         for r in [1, 2, 3]:
-
             final = final.concatenate(train.map(lambda x, y: (tf.image.rot90(x, k=r), y)))
 
     if flip:
@@ -82,7 +71,7 @@ def file_path_dict(classmode=ClassMode.STANDARD):
 
     for folder_name in folder_names:
         folder_path = os.path.join(base_dir, folder_name)
-        label = get_label(classmode, folder_name, folder_names)
+        label = get_label(classmode, folder_name)
 
         if not label in file_paths:
             file_paths[label] = []
@@ -119,7 +108,6 @@ def folds(classmode=ClassMode.STANDARD, window_size=5, balance=False, max_traini
         splittable = value[:quotient * window_size]
         splits = [splittable[i:i + window_size] for i in range(0, len(splittable), window_size)]
         test = splits.pop(0)
-        rest = value[quotient * window_size:]
 
         for i in range(len(splits)):
             if i not in folds:
@@ -193,145 +181,8 @@ def fold_to_data(fold, color, resize=(128, 128), recombination_ratio=4.5, batch_
     return train_data, val_data, test_data
 
 
-def images(val_split=0.5, recombinations=5, augment=True):
-    base_dir = "data/all_images"
-
-    train_images = []
-    val_images = []
-
-    folder_names = os.listdir(base_dir)
-
-    images_per_class = 999
-
-    # For now, we only equalize between the original classes, not the modified ones.
-
-    for folder_name in folder_names:
-        folder_path = os.path.join(base_dir, folder_name)
-
-        if os.path.isdir(folder_path):
-            class_images = []
-            permuted_images = []
-
-            files = list(os.listdir(folder_path))
-            images = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
-
-            for i, filename in enumerate(images):
-                if i >= images_per_class:
-                    break
-                file_path = os.path.join(folder_path, filename)
-
-                if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
-                    img_array = load_image(file_path, color_mode="rgb")
-
-                    class_images.append(img_array)
-                    permuted_images.append(img_array)
-
-            if recombinations > 0:
-                add_recombinations(class_images, permuted_images, recombinations)
-
-            train_images.extend(permuted_images)
-
-    print(f"Loaded {len(train_images)} autoencoder images")
-
-    return np.array(train_images)
-
-
-def test_data(batch_size=2, classmode="standard", colour="rgb", resize=(256, 256)):
-    base_dir = "data/test_set"
-    test_images = []
-    test_labels = []
-
-    folder_names = os.listdir(base_dir)
-
-    images_per_class = determine_max_image_count(base_dir, folder_names)
-
-    # For now, we only equalize between the original classes, not the modified ones.
-
-    for folder_name in folder_names:
-        folder_path = os.path.join(base_dir, folder_name)
-
-        if os.path.isdir(folder_path):
-            label = get_label(classmode, folder_name, folder_names)
-
-            class_images = []
-            permuted_images = []
-
-            files = list(os.listdir(folder_path))
-            images = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
-
-            for i, filename in enumerate(images):
-                if i >= images_per_class:
-                    break
-                file_path = os.path.join(folder_path, filename)
-
-                if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
-                    img_array = load_image(file_path, color_mode=colour, resize=resize)
-                    class_images.append(img_array)
-                    permuted_images.append(img_array)
-
-            test_images.extend(permuted_images)
-            test_labels.extend([label] * len(permuted_images))
-
-    train_dataset = make_data_set(test_images, test_labels, batch_size=batch_size, name="Test")
-
-    return train_dataset
-
-
-def training_data(batch_size=2, recombination_ratio=1.0, augment=True, classmode="standard", colour="rgb", balance=True,
-                  resize=(256, 256)):
-    base_dir = "data/train_set"
-    train_images = []
-    train_labels = []
-
-    folder_names = os.listdir(base_dir)
-
-    images_per_class = determine_max_image_count(base_dir, folder_names) if balance else int(1e7)
-
-    # For now, we only equalize between the original classes, not the modified ones.
-
-    for folder_name in folder_names:
-        folder_path = os.path.join(base_dir, folder_name)
-
-        if os.path.isdir(folder_path):
-            label = get_label(classmode, folder_name, folder_names)
-
-            class_images = []
-            permuted_images = []
-
-            files = list(os.listdir(folder_path))
-            images = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
-
-            for i, filename in enumerate(images):
-                if i >= images_per_class:
-                    break
-                file_path = os.path.join(folder_path, filename)
-
-                if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
-                    img_array = load_image(file_path, color_mode=colour, resize=resize)
-                    class_images.append(img_array)
-                    permuted_images.append(img_array)
-
-            recombinations = int(len(class_images) * recombination_ratio)
-            if recombinations > 0:
-                add_recombinations(class_images, permuted_images, recombinations)
-
-            train_images.extend(permuted_images)
-            train_labels.extend([label] * len(permuted_images))
-
-    train_dataset = make_data_set(train_images, train_labels, batch_size=batch_size, name="Training")
-
-    return train_dataset
-
-
-def all_data(batch_size=2, augment=True, classmode="standard", colour="rgb",
-             recombination_ratio=1, balance=True, resize=(256, 256)):
-    train = training_data(batch_size=batch_size, recombination_ratio=recombination_ratio, augment=augment,
-                          classmode=classmode, balance=balance, colour=colour, resize=resize)
-
-    test = test_data(batch_size=batch_size, classmode=classmode, colour=colour, resize=resize)
-
-    return train, test
-
+# TODO: add a function that returns train, val, test datasets (with augmentation) without a fold structure, for future
+#   convenience
 
 def make_data_set(images, labels, batch_size=2, name='', rotate=True, flip=True, brightness_delta=0,
                   shuffle=False):
@@ -342,7 +193,6 @@ def make_data_set(images, labels, batch_size=2, name='', rotate=True, flip=True,
 
     data_set = tf.data.Dataset.from_tensor_slices((images, labels))
 
-    # TODO: perform augmentation before wrapping in dataset (gives more flexibility)
     data_set = augment_data(data_set, batch_size=batch_size, rotate=rotate, flip=flip,
                             brightness_delta=brightness_delta, shuffle=shuffle)
 
@@ -351,29 +201,6 @@ def make_data_set(images, labels, batch_size=2, name='', rotate=True, flip=True,
     print(f"Dataset {name} class counts: {class_counts}")
 
     return data_set.batch(batch_size=batch_size)
-
-
-def make_data_sets(augment, batch_size, test_images, test_labels, train_images, train_labels):
-    """
-    Converts the given collections of images and labels to Tensorflow dataset objects. Applies augmentation on the
-    training set if specified. Batches the dataset according to the given batch size.
-    """
-
-    assert len(train_labels) == len(train_images)
-    assert len(test_labels) == len(test_images)
-    train_images = np.array(train_images)
-    test_images = np.array(test_images)
-    train_labels = np.array(train_labels)
-    test_labels = np.array(test_labels)
-    train_dataset = tf.data.Dataset.from_tensor_slices((train_images, train_labels)).batch(batch_size)
-    val_dataset = tf.data.Dataset.from_tensor_slices((test_images, test_labels)).batch(batch_size)
-    if augment:
-        train_dataset = augment_data(train_dataset, batch_size=batch_size)
-    class_counts_train = count_images_per_class(train_dataset)
-    class_counts_val = count_images_per_class(val_dataset)
-    print("Train Dataset Class Counts:", class_counts_train)
-    print("Validation Dataset Class Counts:", class_counts_val)
-    return train_dataset, val_dataset
 
 
 def determine_max_image_count(base_dir, folder_names):
@@ -433,7 +260,7 @@ def count_images_per_class(dataset):
     return class_counts
 
 
-def get_label(classmode, folder_name, folder_names):
+def get_label(classmode, folder_name):
     match = re.search(r'\d+', folder_name)
     if match:
         label = int(match.group())
@@ -447,118 +274,3 @@ def get_label(classmode, folder_name, folder_names):
     }
 
     return label_mapping.get(classmode, {}).get(label, label)
-
-
-def ssnombacter_data(val_split=0.1, batch_size=8):
-    """
-    Load the SSNOMBACTER datasets
-    """
-
-    # Define the root directory containing your data
-    data_directory = "data/transfer_data/nombacter"
-
-    # Use the image_dataset_from_directory function with custom label mapping
-    dataset = tf.keras.utils.image_dataset_from_directory(
-        data_directory,
-        labels="inferred",
-        label_mode="int",
-        batch_size=batch_size,
-        image_size=(512, 512),
-        shuffle=True,
-        validation_split=val_split,
-        subset="both",
-        seed=42
-    )
-
-    print(dataset[0].class_names)
-
-    return dataset
-
-
-def reaarange_nombacter():
-    # Define the source directory with the original structure
-    source_directory = "data/transfer_data/SSNOMBACTER/Dataset of TIFF files"
-
-    # Define the target directory where the reorganized data will be saved
-    target_directory = "data/transfer_data/nombacter"
-
-    # Create the target directory if it doesn't exist
-    os.makedirs(target_directory, exist_ok=True)
-
-    class_folders = list(os.listdir(source_directory))
-    # Walk through the source directory and its subdirectories
-    for folder in class_folders:
-        source_folder = os.path.join(source_directory, folder)
-
-        # Define the destination directory for the current file
-        destination_directory = os.path.join(target_directory, folder)
-        os.makedirs(destination_directory, exist_ok=True)
-
-        class_files = []
-
-        for sub_folder in os.listdir(source_folder):
-            sub_path = os.path.join(source_folder, sub_folder)
-            files = [f for f in list(os.listdir(sub_path)) if f.endswith('.tiff')]
-            class_files.extend(files)
-
-            for file in files:
-                tiff_image_path = os.path.join(sub_path, file)
-                # Load the TIFF image
-                tiff_image = Image.open(tiff_image_path)
-
-                # Define the target PNG file path
-                png_image_path = os.path.join(destination_directory, file)
-                png_image_path = os.path.splitext(png_image_path)[0] + ".png"
-
-                # Ensure the target directory exists
-                os.makedirs(os.path.dirname(png_image_path), exist_ok=True)
-
-                # Convert and save the image as PNG
-                tiff_image.save(png_image_path)
-
-    print("Data reorganization completed.")
-
-
-def feature_data(feature="ECM", val_split=0.5, batch_size=2, augment=True):
-    base_dir = "data/all_images"
-    train_images = []
-    train_labels = []
-    test_images = []
-    test_labels = []
-
-    folder_names = os.listdir(base_dir)
-    for folder_name in folder_names:
-
-        folder_path = os.path.join(base_dir, folder_name)
-
-        feature_data = pd.read_csv(f"{base_dir}/{folder_name}/features.csv")
-
-        for i, row in feature_data.iterrows():
-            i = int(i)
-            filename = row["Filename"] + ".png"
-            label = row[feature] / 100
-
-            file_path = os.path.join(folder_path, filename)
-
-            # Ensure the file is an image (e.g., PNG or JPG)
-            if filename.endswith(('.png', '.jpg', '.jpeg', '.gif')):
-                img_array = load_image(file_path)
-
-                # Append the image and label to the lists
-                if i < 10 * val_split:
-                    train_images.append(img_array)  # Always include the originals as well
-                    train_labels.append(label)
-                else:
-                    test_images.append(img_array)
-                    test_labels.append(label)
-
-    assert len(train_labels) == len(train_images)
-    assert len(test_labels) == len(test_images)
-    print(f"Length train {len(train_images)}")
-
-    # TODO: implement optional conversion to grayscale (maybe it helps classfication performance, otherwise it could
-    #  at least help with model complexity/runtime performance)
-
-    train, val = make_data_sets(augment, batch_size, test_images, test_labels, train_images, train_labels)
-
-    return train, val
