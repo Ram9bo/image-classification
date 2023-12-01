@@ -17,7 +17,8 @@ import network
 import tuner
 import util
 from enums import ClassMode, TaskMode
-
+import random
+from collections import Counter
 print('Available GPUs', tf.config.list_physical_devices('GPU'))
 
 
@@ -31,7 +32,7 @@ def train_network(fold, epochs=10, augment=True, transfer=True,
                   freeze=True,
                   task_mode=TaskMode.CLASSIFICATION, transfer_source="xception", colour="rgb", pretrain=False,
                   feature=None, class_weights=False, recombination_ratio=1.0, resize=(256, 256),
-                  dense_layers=6, dense_size=128, lr=0.001, rotate=True, flip=True, brightness_delta=0, batch_size=2):
+                  dense_layers=6, dense_size=128, lr=0.001, rotate=True, flip=True, brightness_delta=0, batch_size=2, dropout=0.0):
     num_classes = 6
     if classmode == ClassMode.COMPRESSED_START or classmode == ClassMode.COMPRESSED_END:
         num_classes = 5
@@ -56,40 +57,38 @@ def train_network(fold, epochs=10, augment=True, transfer=True,
             if transfer_source == "xception":
                 net = network.XceptionNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode,
                                               input_shape=input_shape, dense_layers=dense_layers, dense_size=dense_size,
-                                              lr=lr)
+                                              lr=lr, dropout=dropout)
                 model = net.model
             elif transfer_source == "efficient":
                 net = network.EfficientNetNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode,
                                                   input_shape=input_shape, dense_layers=dense_layers,
-                                                  dense_size=dense_size, lr=lr)
+                                                  dense_size=dense_size, lr=lr, dropout=dropout)
                 model = net.model
             elif transfer_source == "vgg16":
                 net = network.VGG16Network(num_classes=num_classes, freeze=freeze, task_mode=task_mode,
                                            input_shape=input_shape, dense_layers=dense_layers, dense_size=dense_size,
-                                           lr=lr)
+                                           lr=lr, dropout=dropout)
                 model = net.model
             elif transfer_source == "pathonet":
                 net = network.PathonetNetwork(num_classes=num_classes, freeze=freeze, task_mode=task_mode,
                                               input_shape=input_shape, dense_layers=dense_layers, dense_size=dense_size,
-                                              lr=lr)
+                                              lr=lr, dropout=dropout)
                 model = net.model
                 resize = (256, 256)
-                # TODO: Pathonet only accepts 256x256, maybe we can add a resizing layer in the network class
             else:
                 raise Exception("Transfer source not recognised")
         else:
             net = network.CustomResNetNetwork(num_classes=num_classes, task_mode=task_mode, input_shape=input_shape,
-                                              dense_layers=dense_layers, dense_size=dense_size, lr=lr)
+                                              dense_layers=dense_layers, dense_size=dense_size, lr=lr, dropout=dropout)
             model = net.model
 
     if feature is not None:
         train, val = dataloader.feature_data(feature=feature, augment=augment)
+        test = None
     else:
-        train, val = dataloader.fold_to_data(fold, color=colour, batch_size=batch_size, resize=resize,
+        train, val, test = dataloader.fold_to_data(fold, color=colour, batch_size=batch_size, resize=resize,
                                              recombination_ratio=recombination_ratio, rotate=rotate, flip=flip,
                                              brightness_delta=brightness_delta)
-
-    # TODO: include both the presence and the strength of dropout in the HPO, also consider batch normalization, also switch input normalization (to 0-1) on/off
 
     class_weights_dict = None
     if class_weights:
@@ -106,7 +105,8 @@ def train_network(fold, epochs=10, augment=True, transfer=True,
         save_weights_only=True,  # Save only the model weights, not the entire model
         monitor='val_accuracy',  # Monitor validation accuracy
         mode='max',  # 'max' means save the model when the monitored quantity is maximized
-        save_best_only=True  # Save only the best model
+        save_best_only=True,  # Save only the best model
+        options = tf.train.CheckpointOptions(compression=tf.train.CheckpointOptions.GZIP)
     )
 
     hist = model.fit(train, epochs=epochs, verbose=1, validation_data=val,
@@ -123,7 +123,7 @@ def train_network(fold, epochs=10, augment=True, transfer=True,
     else:
         raise KeyError(f"Task mode {task_mode} not recognised.")
 
-    true_labels = np.concatenate([y for x, y in val], axis=0)
+    true_labels = np.concatenate([y for x, y in test], axis=0)
 
     print(preds)
     print(true_labels)
@@ -141,7 +141,7 @@ def train_network(fold, epochs=10, augment=True, transfer=True,
     print(correct, obo, incorrect)
     print(correct / len(preds), obo / len(preds), incorrect / len(preds))
 
-    return hist, correct / len(preds)
+    return hist, correct / len(preds), preds, true_labels
 
 
 def pretrain_model(transfer=False, num_classes=6, freeze=True, task_mode=TaskMode.CLASSIFICATION,
@@ -203,11 +203,6 @@ def pretrain_model(transfer=False, num_classes=6, freeze=True, task_mode=TaskMod
     net.num_classes = num_classes
     net.reset_dense_layers()
 
-    # TODO: Check the effect of grayscaling our own image in combination with this pretraining
-    # TODO: Consider cutting off multiple/all dense layers after pretraining
-    # TODO: Tune the pretraining length (and architecture) a bit
-    # TODO: Consider unfreezing a larger part of the base model (either just during pretraining or during both stages)
-
     return model
 
 
@@ -237,11 +232,32 @@ def run_cifar():
     print(merged_df)
 
 
+def majority_vote(predictions, true_labels):
+    voted_predictions = []
+
+    for i in range(len(predictions[0])):
+        votes = [prediction[i] for prediction in predictions]
+
+        vote_counts = Counter(votes)
+        max_count = max(vote_counts.values())
+
+        # Find all votes that have the maximum count
+        max_votes = [vote for vote, count in vote_counts.items() if count == max_count]
+
+        # Randomly choose one of the tying votes
+        chosen_vote = random.choice(max_votes)
+
+        voted_predictions.append(chosen_vote)
+
+    accuracy = np.mean(voted_predictions == true_labels)
+
+    return voted_predictions, accuracy
+
 def average_train(name, file, runs=5, epochs=20, augment=True, recombination_ratio=1.0, transfer=True,
                   classmode=ClassMode.STANDARD,
                   freeze=True, task_mode=TaskMode.CLASSIFICATION, transfer_source="xception", colour="rgb",
                   pretrain=False, feature=None, balance=True, class_weights=False, resize=512,
-                  dense_layers=4, dense_size=64, lr=0.001, max_training=None):
+                  dense_layers=4, dense_size=64, lr=0.001, max_training=None, ensemble=False):
     """
     Perform training runs according to the given parameters and save the results.
     """
@@ -249,14 +265,15 @@ def average_train(name, file, runs=5, epochs=20, augment=True, recombination_rat
     # Initialize an empty DataFrame to store the merged data
     merged_df = pd.DataFrame(columns=['Epochs', 'Validation Accuracy', 'Setting'])
 
-    # TODO include balance for folds
-
     full_accs = []
     for i in range(runs):
-        folds = dataloader.folds(classmode=classmode, window_size=3, balance=balance, max_training=max_training)
+        folds = dataloader.folds(classmode=classmode, window_size=2, balance=balance, max_training=max_training)
         fold_accs = []
+        true_labels = None
+        all_preds = []
+        solo_accs = []
         for fold_id, fold in folds.items():
-            hist_object, accuracy = train_network(fold=fold, epochs=epochs, augment=augment,
+            hist_object, accuracy, preds, true_labels = train_network(fold=fold, epochs=epochs, augment=augment,
                                                   transfer=transfer,
                                                   classmode=classmode, freeze=freeze, task_mode=task_mode,
                                                   transfer_source=transfer_source, colour=colour, pretrain=pretrain,
@@ -266,9 +283,12 @@ def average_train(name, file, runs=5, epochs=20, augment=True, recombination_rat
                                                   dense_layers=dense_layers,
                                                   dense_size=dense_size, lr=lr)
             hist = hist_object.history
-            fold_accs.append(accuracy)
+            all_preds.append(preds)
+            solo_accs.append(accuracy)
 
-            # TODO: also return the best-weight accuracy averaged across folds, then calculated mean-std over the runs
+            # single model accuracy
+            if not ensemble:
+                fold_accs.append(accuracy)
 
             if task_mode == TaskMode.CLASSIFICATION:
 
@@ -311,6 +331,11 @@ def average_train(name, file, runs=5, epochs=20, augment=True, recombination_rat
             merged_df = pd.concat([merged_df, run_df], ignore_index=True)
 
             print(f"Completed fold {fold_id}")
+
+        if ensemble:
+            votes, ensemble_acc = majority_vote(all_preds, true_labels) # TODO: test this ensemble thing, if it works build a flag, otherwise remove it
+            fold_accs.append(ensemble_acc)
+            print(f"Ensemble accuracy: {ensemble_acc}, Average solo accuracy {np.mean(solo_accs)}")
         full_accs.extend(fold_accs)
         print(f"Average accuracy of folds {np.mean(fold_accs)}")
 

@@ -31,6 +31,7 @@ def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2
     if rotate:
         # Apply rotations of 90, 180, and 270 degrees
         for r in [1, 2, 3]:
+
             final = final.concatenate(train.map(lambda x, y: (tf.image.rot90(x, k=r), y)))
 
     if flip:
@@ -112,30 +113,33 @@ def folds(classmode=ClassMode.STANDARD, window_size=5, balance=False, max_traini
     least_class_count = min([len(value) for value in file_paths.values()])
     quotient, remainder = divmod(least_class_count, window_size)
 
-    for i in range(quotient):
-        fold = {}
-        for label, value in file_paths.items():
-            splittable = value[:quotient * window_size]
-            splits = [splittable[i * quotient:i * quotient + window_size] for i in range(quotient)]
-            rest = value[quotient * window_size:]
+    print(f"Creating {quotient} folds of size {window_size} with {remainder}+ remainder.")
 
-            print(len(splittable), len(rest))
+    for label, value in file_paths.items():
+        splittable = value[:quotient * window_size]
+        splits = [splittable[i:i + window_size] for i in range(0, len(splittable), window_size)]
+        test = splits.pop(0)
+        rest = value[quotient * window_size:]
 
-            fold[label] = {}
-            fold[label]["val"] = splits[i]
-            fold[label]["test"] = splits[(i + 1) % quotient]
-            total_train_set = [v for v in value if v not in fold[label]["val"] and v not in fold[label]["test"]]
+        for i in range(len(splits)):
+            if i not in folds:
+                folds[i] = {}
+
+            if label not in folds[i]:
+                folds[i][label] = {}
+
+            folds[i][label]["val"] = splits[i]
+            folds[i][label]["test"] = test
+
+            total_train_set = [v for v in value if v not in folds[i][label]["val"] and v not in folds[i][label]["test"]]
 
             if balance:
                 k = least_class_count - window_size
                 if max_training is not None and window_size <= max_training <= k:
                     k = max_training
-                fold[label]["train"] = random.choices(total_train_set, k=k)
+                folds[i][label]["train"] = random.choices(total_train_set, k=k)
             else:
-                fold[label]["train"] = total_train_set
-
-        folds[i] = fold
-
+                folds[i][label]["train"] = total_train_set
     return folds
 
 
@@ -178,12 +182,15 @@ def fold_to_data(fold, color, resize=(128, 128), recombination_ratio=4.5, batch_
         train_labels.extend([label] * len(class_train_images))
         train_images.extend(class_train_images)
 
-    train_data = make_data_set(train_images, train_labels, batch_size=batch_size, rotate=rotate, flip=flip,
+    train_data = make_data_set(train_images, train_labels, name="train", batch_size=batch_size, rotate=rotate,
+                               flip=flip,
                                brightness_delta=brightness_delta, shuffle=True)
-    val_data = make_data_set(val_images, val_labels, batch_size=batch_size, rotate=True, flip=False,
+    val_data = make_data_set(val_images, val_labels, name="val", batch_size=batch_size, rotate=True, flip=False,
                              brightness_delta=0, shuffle=False)
+    test_data = make_data_set(test_images, test_labels, name="test", batch_size=batch_size, rotate=True, flip=False,
+                              brightness_delta=0, shuffle=False)
 
-    return train_data, val_data
+    return train_data, val_data, test_data
 
 
 def images(val_split=0.5, recombinations=5, augment=True):
@@ -333,7 +340,7 @@ def make_data_set(images, labels, batch_size=2, name='', rotate=True, flip=True,
     images = np.array(images)
     labels = np.array(labels)
 
-    data_set = tf.data.Dataset.from_tensor_slices((images, labels)).batch(batch_size)
+    data_set = tf.data.Dataset.from_tensor_slices((images, labels))
 
     # TODO: perform augmentation before wrapping in dataset (gives more flexibility)
     data_set = augment_data(data_set, batch_size=batch_size, rotate=rotate, flip=flip,
@@ -343,7 +350,7 @@ def make_data_set(images, labels, batch_size=2, name='', rotate=True, flip=True,
 
     print(f"Dataset {name} class counts: {class_counts}")
 
-    return data_set
+    return data_set.batch(batch_size=batch_size)
 
 
 def make_data_sets(augment, batch_size, test_images, test_labels, train_images, train_labels):
@@ -416,7 +423,7 @@ def add_recombinations(class_images, permuted_images, recombinations):
 
 def count_images_per_class(dataset):
     class_counts = {}
-    for _, labels in dataset.unbatch():
+    for _, labels in dataset:
         label = labels.numpy()
 
         if label in class_counts:
