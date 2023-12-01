@@ -15,7 +15,7 @@ from tensorflow.keras.applications.xception import Xception
 from tensorflow.keras.models import load_model
 
 from enums import TaskMode
-from metrics import obo_accuracy, obo_accuracy_r, obh_accuracy_r, obt_accuracy_r, accuracy
+from metrics import obo_accuracy, obo_accuracy_r, obh_accuracy_r, obt_accuracy_r
 
 # Default Constants
 NUM_CLASSES = 6
@@ -31,7 +31,7 @@ activations = {
 }
 
 metrics = {
-    TaskMode.CLASSIFICATION: [accuracy, obo_accuracy],
+    TaskMode.CLASSIFICATION: ["accuracy", obo_accuracy],
     # Built-in accuracy is acting up, replacing it with a custom implementation for investigation
     TaskMode.REGRESSION: ["mean_absolute_error", obo_accuracy_r, obh_accuracy_r, obt_accuracy_r]
 }

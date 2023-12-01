@@ -1,9 +1,10 @@
 """
 Model training.
 """
-import json
 import os
+import random
 import time
+from collections import Counter
 
 import numpy as np
 import pandas as pd
@@ -14,11 +15,8 @@ from tensorflow.keras.models import load_model
 
 import dataloader
 import network
-import tuner
-import util
 from enums import ClassMode, TaskMode
-import random
-from collections import Counter
+
 print('Available GPUs', tf.config.list_physical_devices('GPU'))
 
 
@@ -32,7 +30,8 @@ def train_network(fold, epochs=10, augment=True, transfer=True,
                   freeze=True,
                   task_mode=TaskMode.CLASSIFICATION, transfer_source="xception", colour="rgb", pretrain=False,
                   feature=None, class_weights=False, recombination_ratio=1.0, resize=(256, 256),
-                  dense_layers=6, dense_size=128, lr=0.001, rotate=True, flip=True, brightness_delta=0, batch_size=2, dropout=0.0):
+                  dense_layers=6, dense_size=128, lr=0.001, rotate=True, flip=True, brightness_delta=0, batch_size=2,
+                  dropout=0.0):
     num_classes = 6
     if classmode == ClassMode.COMPRESSED_START or classmode == ClassMode.COMPRESSED_END:
         num_classes = 5
@@ -82,13 +81,9 @@ def train_network(fold, epochs=10, augment=True, transfer=True,
                                               dense_layers=dense_layers, dense_size=dense_size, lr=lr, dropout=dropout)
             model = net.model
 
-    if feature is not None:
-        train, val = dataloader.feature_data(feature=feature, augment=augment)
-        test = None
-    else:
-        train, val, test = dataloader.fold_to_data(fold, color=colour, batch_size=batch_size, resize=resize,
-                                             recombination_ratio=recombination_ratio, rotate=rotate, flip=flip,
-                                             brightness_delta=brightness_delta)
+    train, val, test = dataloader.fold_to_data(fold, color=colour, batch_size=batch_size, resize=resize,
+                                               recombination_ratio=recombination_ratio, rotate=rotate, flip=flip,
+                                               brightness_delta=brightness_delta)
 
     class_weights_dict = None
     if class_weights:
@@ -106,7 +101,7 @@ def train_network(fold, epochs=10, augment=True, transfer=True,
         monitor='val_accuracy',  # Monitor validation accuracy
         mode='max',  # 'max' means save the model when the monitored quantity is maximized
         save_best_only=True,  # Save only the best model
-        options = tf.train.CheckpointOptions(compression=tf.train.CheckpointOptions.GZIP)
+        options=tf.train.CheckpointOptions(compression=tf.train.CheckpointOptions.GZIP)
     )
 
     hist = model.fit(train, epochs=epochs, verbose=1, validation_data=val,
@@ -253,6 +248,7 @@ def majority_vote(predictions, true_labels):
 
     return voted_predictions, accuracy
 
+
 def average_train(name, file, runs=5, epochs=20, augment=True, recombination_ratio=1.0, transfer=True,
                   classmode=ClassMode.STANDARD,
                   freeze=True, task_mode=TaskMode.CLASSIFICATION, transfer_source="xception", colour="rgb",
@@ -274,14 +270,17 @@ def average_train(name, file, runs=5, epochs=20, augment=True, recombination_rat
         solo_accs = []
         for fold_id, fold in folds.items():
             hist_object, accuracy, preds, true_labels = train_network(fold=fold, epochs=epochs, augment=augment,
-                                                  transfer=transfer,
-                                                  classmode=classmode, freeze=freeze, task_mode=task_mode,
-                                                  transfer_source=transfer_source, colour=colour, pretrain=pretrain,
-                                                  feature=feature,
-                                                  class_weights=class_weights,
-                                                  recombination_ratio=recombination_ratio, resize=(resize, resize),
-                                                  dense_layers=dense_layers,
-                                                  dense_size=dense_size, lr=lr)
+                                                                      transfer=transfer,
+                                                                      classmode=classmode, freeze=freeze,
+                                                                      task_mode=task_mode,
+                                                                      transfer_source=transfer_source, colour=colour,
+                                                                      pretrain=pretrain,
+                                                                      feature=feature,
+                                                                      class_weights=class_weights,
+                                                                      recombination_ratio=recombination_ratio,
+                                                                      resize=(resize, resize),
+                                                                      dense_layers=dense_layers,
+                                                                      dense_size=dense_size, lr=lr)
             hist = hist_object.history
             all_preds.append(preds)
             solo_accs.append(accuracy)
@@ -333,7 +332,8 @@ def average_train(name, file, runs=5, epochs=20, augment=True, recombination_rat
             print(f"Completed fold {fold_id}")
 
         if ensemble:
-            votes, ensemble_acc = majority_vote(all_preds, true_labels) # TODO: test this ensemble thing, if it works build a flag, otherwise remove it
+            votes, ensemble_acc = majority_vote(all_preds,
+                                                true_labels)  # TODO: test this ensemble thing, if it works build a flag, otherwise remove it
             fold_accs.append(ensemble_acc)
             print(f"Ensemble accuracy: {ensemble_acc}, Average solo accuracy {np.mean(solo_accs)}")
         full_accs.extend(fold_accs)

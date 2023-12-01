@@ -79,22 +79,3 @@ def obo_accuracy(y_true, y_pred):
     accuracy = tf.reduce_mean(correct_predictions)
 
     return accuracy
-
-
-def accuracy(y_true, y_pred):
-    # Calculate the argmax of predicted values to get the predicted class labels
-    predicted_labels = tf.argmax(y_pred, axis=-1)
-
-    # Cast y_true to the data type of predicted_labels
-    y_true = tf.cast(y_true, predicted_labels.dtype)
-
-    # Check if the absolute difference is less than or equal to 1
-    correct_predictions = tf.equal(y_true, predicted_labels)
-
-    # Cast the correct_predictions to float32
-    correct_predictions = tf.cast(correct_predictions, tf.float32)
-
-    # Calculate the mean accuracy across all predictions
-    accuracy = tf.reduce_mean(correct_predictions)
-
-    return accuracy
