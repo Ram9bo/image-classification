@@ -13,7 +13,6 @@ from tensorflow.keras.applications import EfficientNetB0
 from tensorflow.keras.applications.resnet50 import ResNet50
 from tensorflow.keras.applications.xception import Xception
 
-from enums import TaskMode
 from metrics import obo_accuracy
 
 # Default Constants
@@ -22,6 +21,7 @@ IMG_COLS = 512
 IMG_ROWS = 512
 RGB_CHANNELS = 3
 INPUT_SHAPE = (IMG_ROWS, IMG_COLS, RGB_CHANNELS)
+
 
 class Network(ABC):
     """
@@ -33,11 +33,10 @@ class Network(ABC):
 
     model = None
 
-    def __init__(self, input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, task_mode=TaskMode.CLASSIFICATION,
-                 freeze=False, dense_layers=6, dense_size=128, lr=0.001, dropout=0.0):
+    def __init__(self, input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=False, dense_layers=6, dense_size=128,
+                 lr=0.001, dropout=0.0):
         self.input_shape = input_shape
         self.num_classes = num_classes
-        self.task_mode = task_mode
         self.final_activation = "softmax"
         self.loss = "sparse_categorical_crossentropy"
         self.metrics = ["accuracy", obo_accuracy]
