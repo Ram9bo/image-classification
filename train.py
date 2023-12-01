@@ -110,6 +110,7 @@ def train_network(fold, epochs=10, augment=True, transfer=True,
 
     # Load the best model weights
     model.load_weights(checkpoint_filepath)
+    os.remove(checkpoint_filepath)
 
     if task_mode == TaskMode.CLASSIFICATION:
         preds = np.argmax(model.predict(val), axis=1)
