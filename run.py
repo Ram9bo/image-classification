@@ -13,14 +13,15 @@ from train import average_train
 
 print('Available GPUs', tf.config.list_physical_devices('GPU'))
 
+
 def ablation():
     # Create DataFrames for different settings
-    name = "ensemble"
+    name = "classmode"
     file = util.data_path(f"{name}.csv")
 
     pd.DataFrame().to_csv(file)
-    runs = 1
-    epochs = 1
+    runs = 5
+    epochs = 20
 
     try:
         # Get the best hyperparameters
@@ -31,16 +32,16 @@ def ablation():
         best_hyperparameters = {}
 
     best_hyperparameters["epochs"] = epochs
-    best_hyperparameters["recombination_ratio"] = 0.0
+    best_hyperparameters["batch_size"] = 64
 
     accs = {}
 
-    acc, std, setting = average_train("Ensemble", file, runs=runs, **best_hyperparameters, ensemble=True)
+    acc, std, setting = average_train("Compressed Both", file, runs=runs, **best_hyperparameters, window_size=3,
+                                      classmode=ClassMode.COMPRESSED_BOTH)
 
     accs[setting] = {"mean": acc, "std": std}
 
-    acc, std, setting = average_train("Solo", file, runs=runs, **best_hyperparameters,
-                                      ensemble=False)
+    acc, std, setting = average_train("Standard", file, runs=runs, **best_hyperparameters, window_size=3)
 
     accs[setting] = {"mean": acc, "std": std}
 

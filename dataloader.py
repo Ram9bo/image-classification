@@ -73,7 +73,7 @@ def file_path_dict(classmode=ClassMode.STANDARD):
         folder_path = os.path.join(base_dir, folder_name)
         label = get_label(classmode, folder_name)
 
-        if not label in file_paths:
+        if label not in file_paths:
             file_paths[label] = []
 
         if os.path.isdir(folder_path):
@@ -100,14 +100,14 @@ def folds(classmode=ClassMode.STANDARD, window_size=5, balance=False, max_traini
     folds = {}
 
     least_class_count = min([len(value) for value in file_paths.values()])
-    quotient, remainder = divmod(least_class_count, window_size)
+    quotient, remainder = divmod(least_class_count - 5, window_size)
 
     print(f"Creating {quotient} folds of size {window_size} with {remainder}+ remainder.")
 
     for label, value in file_paths.items():
-        splittable = value[:quotient * window_size]
+        test = value[:5]  # Test set should always be (at least) five original images
+        splittable = value[:5]
         splits = [splittable[i:i + window_size] for i in range(0, len(splittable), window_size)]
-        test = splits.pop(0)
 
         for i in range(len(splits)):
             if i not in folds:

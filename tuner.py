@@ -23,7 +23,7 @@ def get_best():
         max_trials=100,
         overwrite=False,
         directory="tuning",
-        project_name="biofilm",
+        project_name="folded-std",
         executions_per_trial=3
     )
 

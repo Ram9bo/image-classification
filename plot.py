@@ -7,7 +7,7 @@ if __name__ == "__main__":
     # Set seaborn style
     sns.set_style("whitegrid")
 
-    name = "classmode"
+    name = "ensemble"
 
     data = pd.read_csv(util.data_path(f"{name}.csv"))
 

@@ -28,7 +28,7 @@ def train_network(fold, epochs=10, transfer=True,
                   classmode=ClassMode.STANDARD,
                   freeze=True, transfer_source="xception", colour="rgb", pretrain=False,
                   class_weights=False, recombination_ratio=1.0, resize=(256, 256),
-                  dense_layers=6, dense_size=128, lr=0.001, rotate=True, flip=True, brightness_delta=0, batch_size=2,
+                  dense_layers=6, dense_size=128, lr=0.001, rotate=True, flip=True, brightness_delta=0.0, batch_size=2,
                   dropout=0.0):
     num_classes = 6
     if classmode == ClassMode.COMPRESSED_START or classmode == ClassMode.COMPRESSED_END:
@@ -97,8 +97,7 @@ def train_network(fold, epochs=10, transfer=True,
     model.load_weights(checkpoint_filepath)
     os.remove(checkpoint_filepath)
 
-    preds = np.argmax(model.predict(val), axis=1)
-
+    preds = np.argmax(model.predict(test), axis=1)
     true_labels = np.concatenate([y for x, y in test], axis=0)
 
     print(preds)
@@ -146,7 +145,11 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
                   classmode=ClassMode.STANDARD,
                   freeze=True, transfer_source="xception", colour="rgb",
                   pretrain=False, balance=True, class_weights=False, resize=512,
-                  dense_layers=4, dense_size=64, lr=0.001, max_training=None, ensemble=False):
+                  dense_layers=4, dense_size=64, lr=0.001, max_training=None, ensemble=False, window_size=5,
+                  augment=None, rotate=True, flip=False,
+                  brightness_delta=0.0,
+                  batch_size=32,
+                  dropout=0.0):
     """
     Perform training runs according to the given parameters and save the results.
     """
@@ -156,7 +159,8 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
 
     full_accs = []
     for i in range(runs):
-        folds = dataloader.folds(classmode=classmode, window_size=2, balance=balance, max_training=max_training)
+        folds = dataloader.folds(classmode=classmode, window_size=window_size, balance=balance,
+                                 max_training=max_training)
         fold_accs = []
         true_labels = None
         all_preds = []
@@ -170,7 +174,11 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
                                                                       recombination_ratio=recombination_ratio,
                                                                       resize=(resize, resize),
                                                                       dense_layers=dense_layers,
-                                                                      dense_size=dense_size, lr=lr)
+                                                                      dense_size=dense_size, lr=lr, rotate=rotate,
+                                                                      flip=flip,
+                                                                      brightness_delta=brightness_delta,
+                                                                      batch_size=batch_size,
+                                                                      dropout=dropout)
             hist = hist_object.history
             all_preds.append(preds)
             solo_accs.append(accuracy)
@@ -204,7 +212,8 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
             votes, ensemble_acc = majority_vote(all_preds, true_labels)
             # TODO: since we don't need to save the whole models, we can simply always do ensemble eval
             fold_accs.append(ensemble_acc)
-            print(f"Ensemble accuracy: {ensemble_acc}, Average solo accuracy {np.mean(solo_accs)}")
+            print(
+                f"Ensemble accuracy: {ensemble_acc}, Average solo accuracy {np.mean(solo_accs)}, Max model acc: {np.max(solo_accs)}, Min model acc: {np.min(solo_accs)}")
         full_accs.extend(fold_accs)
         print(f"Average accuracy of folds {np.mean(fold_accs)}")
 
