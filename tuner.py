@@ -53,6 +53,7 @@ class CustomTuner(kt.BayesianOptimization):
         batch_size = hp.Choice("batch_size", [2, 4, 8, 16, 32, 64], default=2)
         dropout = hp.Float("dropout", min_value=0.0, max_value=0.3, step="0.05")
         fold_size = hp.Int("fold_size", min_value=1, max_value=5, default=3)
+        checkpoint_select = hp.Choice("checkpoint_select", ["val_accuracy", "val_loss"], default="val_accuracy")
 
         results = []
 
@@ -62,7 +63,7 @@ class CustomTuner(kt.BayesianOptimization):
             folds = dataloader.folds(classmode=ClassMode.STANDARD, window_size=fold_size, balance=balance)
             for fold_id, fold in folds.items():
                 try:
-                    hist, acc, preds, true_labels, f1 = train.train_network(fold=fold, epochs=epochs,
+                    hist, acc, obo, preds, true_labels, f1 = train.train_network(fold=fold, epochs=epochs,
                                                                             class_weights=class_weights,
                                                                             recombination_ratio=recombination_ratio,
                                                                             resize=(resize, resize),
@@ -75,7 +76,7 @@ class CustomTuner(kt.BayesianOptimization):
                                                                             brightness_delta=brightness_delta,
                                                                             batch_size=batch_size,
                                                                             dropout=dropout,
-                                                                            unfreeze=unfreeze)
+                                                                            unfreeze=unfreeze, checkpoint_select=checkpoint_select)
                     results.append(f1)
                 except Exception as e:
                     print(e)

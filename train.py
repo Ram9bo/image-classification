@@ -27,7 +27,7 @@ def train_network(fold, epochs=10, transfer=True,
                   transfer_source="xception", colour="rgb", class_weights=False, recombination_ratio=1.0,
                   resize=(256, 256),
                   dense_layers=6, dense_size=128, lr=0.001, rotate=True, flip=True, brightness_delta=0.0, batch_size=2,
-                  dropout=0.0, unfreeze=0):
+                  dropout=0.1, unfreeze=0, checkpoint_select="val_accuracy"):
     num_classes = 6
     if classmode == ClassMode.COMPRESSED_START or classmode == ClassMode.COMPRESSED_END:
         num_classes = 5
@@ -77,7 +77,7 @@ def train_network(fold, epochs=10, transfer=True,
     model_checkpoint_callback = ModelCheckpoint(
         filepath=checkpoint_filepath,
         save_weights_only=True,  # Save only the model weights, not the entire model
-        monitor='val_accuracy',  # Monitor validation accuracy
+        monitor=checkpoint_select,  # Monitor validation accuracy
         mode='max',  # 'max' means save the model when the monitored quantity is maximized
         save_best_only=True,  # Save only the best model
     )
@@ -99,7 +99,7 @@ def train_network(fold, epochs=10, transfer=True,
     correct, obo, incorrect = evaluate(preds, true_labels)
     print(f"Accuracy: {correct}, Off-By-One: {obo}, Error Rate: {incorrect}")
 
-    return hist, correct, preds, true_labels, report_dict["weighted avg"]["f1-score"]
+    return hist, correct, obo, preds, true_labels, report_dict["weighted avg"]["f1-score"]
 
 
 def evaluate(preds, true_labels):
@@ -125,7 +125,7 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
                   classmode=ClassMode.STANDARD, transfer_source="xception", colour="rgb", pretrain=False,
                   balance=True, class_weights=False, resize=256, dense_layers=4, dense_size=64, lr=0.001,
                   max_training=None, window_size=2, rotate=True, flip=False, brightness_delta=0.0, batch_size=32,
-                  dropout=0.0, unfreeze=0):
+                  dropout=0.0, unfreeze=0, checkpoint_select="val_accuracy"):
     """
     Perform training runs according to the given parameters and save the results.
     """
@@ -134,26 +134,36 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
     merged_df = pd.DataFrame(columns=['Epochs', 'Validation Accuracy', 'Setting'])
 
     full_accs = []
+    full_obo = []
+    all_preds = []
+    all_labels = []
     for i in range(runs):
         folds = dataloader.folds(classmode=classmode, window_size=window_size, balance=balance,
                                  max_training=max_training)
         fold_accs = []
+        fold_obo = []
         for fold_id, fold in folds.items():
-            hist_object, accuracy, preds, true_labels, f1 = train_network(fold=fold, epochs=epochs, transfer=transfer,
-                                                                          classmode=classmode,
-                                                                          transfer_source=transfer_source,
-                                                                          colour=colour,
-                                                                          class_weights=class_weights,
-                                                                          recombination_ratio=recombination_ratio,
-                                                                          resize=(resize, resize),
-                                                                          dense_layers=dense_layers,
-                                                                          dense_size=dense_size, lr=lr, rotate=rotate,
-                                                                          flip=flip,
-                                                                          brightness_delta=brightness_delta,
-                                                                          batch_size=batch_size,
-                                                                          dropout=dropout, unfreeze=unfreeze)
+            hist_object, accuracy, obo, preds, true_labels, f1 = train_network(fold=fold, epochs=epochs,
+                                                                               transfer=transfer,
+                                                                               classmode=classmode,
+                                                                               transfer_source=transfer_source,
+                                                                               colour=colour,
+                                                                               class_weights=class_weights,
+                                                                               recombination_ratio=recombination_ratio,
+                                                                               resize=(resize, resize),
+                                                                               dense_layers=dense_layers,
+                                                                               dense_size=dense_size, lr=lr,
+                                                                               rotate=rotate,
+                                                                               flip=flip,
+                                                                               brightness_delta=brightness_delta,
+                                                                               batch_size=batch_size,
+                                                                               dropout=dropout, unfreeze=unfreeze,
+                                                                               checkpoint_select=checkpoint_select)
             hist = hist_object.history
             fold_accs.append(accuracy)
+            fold_obo.append(obo + accuracy)
+            all_preds.extend(preds)
+            all_labels.extend(true_labels)
 
             # Extract the epoch and validation accuracy values
             epochs_range = list(range(1, epochs + 1))
@@ -173,12 +183,19 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
 
             print(f"Completed fold {fold_id}")
         full_accs.extend(fold_accs)
+        full_obo.extend(fold_obo)
         print(f"Average accuracy of folds {np.mean(fold_accs)}")
+        print(f"Average off-by-one accuracy of folds {np.mean(fold_obo)}")
 
     add_runs(merged_df, file)
     print(f"Finished {runs}  \"{name}\" runs in {(time.time() - start) / 60} minutes")
     print(
-        f"Evaluation of final models for setting {name}: Mean {np.mean(full_accs)}, Standard Deviation {np.std(full_accs)}")
+        f"Accuracy of final models for setting {name}: Mean {np.mean(full_accs)}, Standard Deviation {np.std(full_accs)}")
+    print(
+        f"Off-by-one accuracy of final models for setting {name}: Mean {np.mean(full_obo)}, Standard Deviation {np.std(full_obo)}")
+
+    full_report = classification_report(all_labels, all_preds)
+    print("Classification Report:\n", full_report)
 
     return np.mean(full_accs), np.std(full_accs), name
 
