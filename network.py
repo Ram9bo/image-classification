@@ -9,11 +9,8 @@ from keras.layers import Conv2D, MaxPooling2D, Dropout
 from keras.layers import Dense, Flatten
 from keras.models import Sequential
 from tensorflow.keras import layers, Model
-from tensorflow.keras.applications import EfficientNetB0
 from tensorflow.keras.applications.resnet50 import ResNet50
 from tensorflow.keras.applications.xception import Xception
-
-from metrics import obo_accuracy
 
 # Default Constants
 NUM_CLASSES = 6
@@ -34,17 +31,18 @@ class Network(ABC):
     model = None
 
     def __init__(self, input_shape=INPUT_SHAPE, num_classes=NUM_CLASSES, freeze=False, dense_layers=6, dense_size=128,
-                 lr=0.001, dropout=0.0):
+                 lr=0.001, dropout=0.0, unfreeze=0):
         self.input_shape = input_shape
         self.num_classes = num_classes
         self.final_activation = "softmax"
         self.loss = "sparse_categorical_crossentropy"
-        self.metrics = ["accuracy", obo_accuracy]
+        self.metrics = ["accuracy"]
         self.freeze = freeze
         self.dense_layers = dense_layers
         self.dense_size = dense_size
         self.lr = lr
         self.dropout = dropout
+        self.unfreeze = unfreeze
 
         self.create_base()
         self.add_dense_layers()
@@ -98,27 +96,9 @@ class XceptionNetwork(Network):
 
         for layer in base.layers:
             layer.trainable = False
-        if not self.freeze:
+        if not self.unfreeze == 0:
             # Unfreeze specific layers
-            for layer in base.layers[-5:]:  # Unfreeze the last x layers
-                layer.trainable = True
-
-        # TODO: turn freeze into an integer, also make it part of the parent class
-
-        self.model = Sequential()
-        self.model.add(base)
-
-
-class EfficientNetNetwork(Network):
-
-    def create_base(self):
-        base = EfficientNetB0(include_top=False, input_shape=self.input_shape, weights='imagenet', pooling='max')
-
-        for layer in base.layers:
-            layer.trainable = False
-        if not self.freeze:
-            # Unfreeze specific layers
-            for layer in base.layers[-5:]:  # Unfreeze the last 10 layers
+            for layer in base.layers[-self.unfreeze:]:  # Unfreeze the last x layers
                 layer.trainable = True
 
         self.model = Sequential()
@@ -132,9 +112,9 @@ class VGG16Network(Network):
 
         for layer in base.layers:
             layer.trainable = False
-        if not self.freeze:
+        if not self.unfreeze == 0:
             # Unfreeze specific layers
-            for layer in base.layers[-5:]:  # Unfreeze the last 10 layers
+            for layer in base.layers[-self.unfreeze:]:  # Unfreeze the last x layers
                 layer.trainable = True
 
         self.model = Sequential()

@@ -38,11 +38,11 @@ class CustomTuner(kt.BayesianOptimization):
         hp = trial.hyperparameters
 
         resize = hp.Choice("resize", [512, 256, 128, 72], default=128)
-        freeze = hp.Choice("freeze", [True, False], default=True)
+        unfreeze = hp.Int("unfreeze", min_value=0, max_value=10, default=0)
         balance = hp.Choice("balance", [True, False], default=True)
         class_weights = hp.Choice("class_weights", [False, True], default=True)
         recombination_ratio = hp.Choice("recombination_ratio", [0.0, 1.0, 2.0, 3.0, 4.0, 5.0], default=1.0)
-        dense_layers = hp.Int("dense_layers", min_value=1, max_value=10, default=2)
+        dense_layers = hp.Int("dense_layers", min_value=0, max_value=10, default=2)
         dense_size = hp.Choice("dense_size", [8, 16, 32, 64, 128, 256, 512], default=64)
         colour = hp.Choice("colour", ["gray_scale", "rgb"], default="gray_scale")
         learning_rate = hp.Choice("lr", [0.01, 0.001, 0.0001, 0.00001, 0.005, 0.0005, 0.00005],
@@ -52,36 +52,37 @@ class CustomTuner(kt.BayesianOptimization):
         brightness_delta = hp.Choice("brightness_delta", [0.0, 0.05, 0.1, 0.2, 0.5], default=0)
         batch_size = hp.Choice("batch_size", [2, 4, 8, 16, 32, 64], default=2)
         dropout = hp.Float("dropout", min_value=0.0, max_value=0.3, step="0.05")
+        fold_size = hp.Int("fold_size", min_value=1, max_value=5, default=3)
 
         results = []
 
-        epochs = 20
+        epochs = 10
 
         for _ in range(self.executions_per_trial):
-            folds = dataloader.folds(classmode=ClassMode.STANDARD, window_size=5, balance=balance)
+            folds = dataloader.folds(classmode=ClassMode.STANDARD, window_size=fold_size, balance=balance)
             for fold_id, fold in folds.items():
                 try:
-                    hist, acc, preds, true_labels = train.train_network(fold=fold, epochs=epochs,
-                                                                        freeze=freeze,
-                                                                        class_weights=class_weights,
-                                                                        recombination_ratio=recombination_ratio,
-                                                                        resize=(resize, resize),
-                                                                        dense_layers=dense_layers,
-                                                                        dense_size=dense_size,
-                                                                        colour=colour,
-                                                                        lr=learning_rate,
-                                                                        transfer_source="xception", rotate=rotate,
-                                                                        flip=flip,
-                                                                        brightness_delta=brightness_delta,
-                                                                        batch_size=batch_size,
-                                                                        dropout=dropout)
-                    results.append(acc)
+                    hist, acc, preds, true_labels, f1 = train.train_network(fold=fold, epochs=epochs,
+                                                                            class_weights=class_weights,
+                                                                            recombination_ratio=recombination_ratio,
+                                                                            resize=(resize, resize),
+                                                                            dense_layers=dense_layers,
+                                                                            dense_size=dense_size,
+                                                                            colour=colour,
+                                                                            lr=learning_rate,
+                                                                            transfer_source="xception", rotate=rotate,
+                                                                            flip=flip,
+                                                                            brightness_delta=brightness_delta,
+                                                                            batch_size=batch_size,
+                                                                            dropout=dropout,
+                                                                            unfreeze=unfreeze)
+                    results.append(f1)
                 except Exception as e:
                     print(e)
-                    return 1000
+                    return 10000
 
         if len(results) > 1:
-            return (1 - np.mean(results)) * 100 + np.std(results) + 0.1 / batch_size
+            return np.mean(results)
 
 
 if __name__ == "__main__":
@@ -90,7 +91,8 @@ if __name__ == "__main__":
         overwrite=False,
         directory="tuning",
         project_name="folded-std",
-        executions_per_trial=3
+        executions_per_trial=5,
+        objective_direction="max"
     )
 
     tuner.search()
