@@ -132,7 +132,7 @@ def folds(classmode=ClassMode.STANDARD, window_size=5, balance=False, max_traini
 
 
 def fold_to_data(fold, color, resize=(128, 128), recombination_ratio=4.5, batch_size=2, rotate=True,
-                 flip=True, brightness_delta=0):
+                 flip=True, brightness_delta=0, verbose=1):
     """
     Converts the given fold of file paths to training and validation datasets.
     """
@@ -172,11 +172,11 @@ def fold_to_data(fold, color, resize=(128, 128), recombination_ratio=4.5, batch_
 
     train_data = make_data_set(train_images, train_labels, name="train", batch_size=batch_size, rotate=rotate,
                                flip=flip,
-                               brightness_delta=brightness_delta, shuffle=True)
+                               brightness_delta=brightness_delta, shuffle=True, verbose=verbose)
     val_data = make_data_set(val_images, val_labels, name="val", batch_size=batch_size, rotate=True, flip=False,
-                             brightness_delta=0, shuffle=False)
+                             brightness_delta=0, shuffle=False, verbose=verbose)
     test_data = make_data_set(test_images, test_labels, name="test", batch_size=batch_size, rotate=True, flip=False,
-                              brightness_delta=0, shuffle=False)
+                              brightness_delta=0, shuffle=False, verbose=verbose)
 
     return train_data, val_data, test_data
 
@@ -185,7 +185,7 @@ def fold_to_data(fold, color, resize=(128, 128), recombination_ratio=4.5, batch_
 #   convenience
 
 def make_data_set(images, labels, batch_size=2, name='', rotate=True, flip=True, brightness_delta=0,
-                  shuffle=False):
+                  shuffle=False, verbose=1):
     assert len(images) == len(labels)
 
     images = np.array(images)
@@ -198,7 +198,8 @@ def make_data_set(images, labels, batch_size=2, name='', rotate=True, flip=True,
 
     class_counts = count_images_per_class(data_set)
 
-    print(f"Dataset {name} class counts: {class_counts}")
+    if verbose:
+        print(f"Dataset {name} class counts: {class_counts}")
 
     return data_set.batch(batch_size=batch_size)
 

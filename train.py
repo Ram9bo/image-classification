@@ -10,7 +10,6 @@ import tensorflow as tf
 from sklearn.metrics import classification_report
 from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras.callbacks import ModelCheckpoint
-
 import dataloader
 import network
 from enums import ClassMode
@@ -27,14 +26,15 @@ def train_network(fold, epochs=10, transfer=True,
                   transfer_source="xception", colour="rgb", class_weights=False, recombination_ratio=1.0,
                   resize=(256, 256),
                   dense_layers=6, dense_size=128, lr=0.001, rotate=True, flip=True, brightness_delta=0.0, batch_size=2,
-                  dropout=0.1, unfreeze=0, checkpoint_select="val_accuracy"):
+                  dropout=0.1, unfreeze=0, checkpoint_select="val_accuracy", verbose=1):
     num_classes = 6
     if classmode == ClassMode.COMPRESSED_START or classmode == ClassMode.COMPRESSED_END:
         num_classes = 5
     elif classmode == ClassMode.COMPRESSED_BOTH:
         num_classes = 4
 
-    print(f"Predicting {num_classes} classes")
+    if verbose:
+        print(f"Predicting {num_classes} classes")
 
     input_shape = network.INPUT_SHAPE
     if resize is not None:
@@ -62,7 +62,7 @@ def train_network(fold, epochs=10, transfer=True,
 
     train, val, test = dataloader.fold_to_data(fold, color=colour, batch_size=batch_size, resize=resize,
                                                recombination_ratio=recombination_ratio, rotate=rotate, flip=flip,
-                                               brightness_delta=brightness_delta)
+                                               brightness_delta=brightness_delta, verbose=verbose)
 
     class_weights_dict = None
     if class_weights:
@@ -70,7 +70,8 @@ def train_network(fold, epochs=10, transfer=True,
         y_train = np.concatenate([y for x, y in train], axis=0)
         class_weights_list = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
         class_weights_dict = dict(enumerate(class_weights_list))
-        print(class_weights_dict)
+        if verbose:
+            print(class_weights_dict)
 
     # Define ModelCheckpoint callback
     checkpoint_filepath = 'best_model.h5'  # Specify the path to save the best model
@@ -82,22 +83,24 @@ def train_network(fold, epochs=10, transfer=True,
         save_best_only=True,  # Save only the best model
     )
 
-    hist = model.fit(train, epochs=epochs, verbose=1, validation_data=val,
+    hist = model.fit(train, epochs=epochs, verbose=verbose, validation_data=val,
                      callbacks=[model_checkpoint_callback],
                      class_weight=class_weights_dict)
 
     # Load the best model weights
     model.load_weights(checkpoint_filepath)
 
-    preds = np.argmax(model.predict(test), axis=1)
+    preds = np.argmax(model.predict(test, verbose=verbose), axis=1)
     true_labels = np.concatenate([y for x, y in test], axis=0)
 
     report = classification_report(true_labels, preds)
     report_dict = classification_report(true_labels, preds, output_dict=True)
-    print("Classification Report:\n", report)
+    if verbose:
+        print("Classification Report:\n", report)
 
     correct, obo, incorrect = evaluate(preds, true_labels)
-    print(f"Accuracy: {correct}, Off-By-One: {obo}, Error Rate: {incorrect}")
+    if verbose:
+        print(f"Accuracy: {correct}, Off-By-One: {obo}, Error Rate: {incorrect}")
 
     return hist, correct, obo, preds, true_labels, report_dict["weighted avg"]["f1-score"]
 
@@ -122,9 +125,8 @@ def evaluate(preds, true_labels):
 
 
 def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transfer=True,
-                  classmode=ClassMode.STANDARD, transfer_source="xception", colour="rgb", pretrain=False,
-                  balance=True, class_weights=False, resize=256, dense_layers=4, dense_size=64, lr=0.001,
-                  max_training=None, window_size=2, rotate=True, flip=False, brightness_delta=0.0, batch_size=32,
+                  classmode=ClassMode.STANDARD, transfer_source="xception", colour="rgb", balance=True, class_weights=False, resize=256, dense_layers=4, dense_size=64, lr=0.001,
+                  max_training=None, fold_size=2, rotate=True, flip=False, brightness_delta=0.0, batch_size=32,
                   dropout=0.0, unfreeze=0, checkpoint_select="val_accuracy"):
     """
     Perform training runs according to the given parameters and save the results.
@@ -138,7 +140,7 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
     all_preds = []
     all_labels = []
     for i in range(runs):
-        folds = dataloader.folds(classmode=classmode, window_size=window_size, balance=balance,
+        folds = dataloader.folds(classmode=classmode, window_size=fold_size, balance=balance,
                                  max_training=max_training)
         fold_accs = []
         fold_obo = []
@@ -197,7 +199,7 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
     full_report = classification_report(all_labels, all_preds)
     print("Classification Report:\n", full_report)
 
-    return np.mean(full_accs), np.std(full_accs), name
+    return np.mean(full_accs), np.std(full_accs), name, np.mean(full_obo), np.std(full_obo)
 
 
 def add_runs(run_results, file):
