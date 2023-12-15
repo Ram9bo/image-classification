@@ -8,6 +8,9 @@ tuning/
 best_model.h5
 best_model.keras
 eval.json
+model/
+images/
+results.csv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
