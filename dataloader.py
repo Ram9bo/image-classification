@@ -12,7 +12,7 @@ from PIL import Image
 from enums import ClassMode
 
 
-def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2, translate=True, shuffle=True):
+def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2, shuffle=True):
     """
     Augment the given dataset according to the given parameters and shuffle the resulting dataset.
     """
@@ -88,7 +88,7 @@ def file_path_dict(classmode=ClassMode.STANDARD):
     return file_paths
 
 
-def folds(classmode=ClassMode.STANDARD, window_size=5, balance=False, max_training=None):
+def folds(classmode=ClassMode.STANDARD, balance=False, max_training=None):
     """
     Creates as many folds as possible by finding the least class count and seeing how many window sizes fit in it.
     Then, the validations set for the fold is taken according to the window size, and the rest is training data.
@@ -96,30 +96,28 @@ def folds(classmode=ClassMode.STANDARD, window_size=5, balance=False, max_traini
     """
 
     file_paths = file_path_dict(classmode)
+    window_size = 5
 
     folds = {}
 
     least_class_count = min([len(value) for value in file_paths.values()])
-    quotient, remainder = divmod(least_class_count - 5, window_size)
+    quotient, remainder = divmod(least_class_count, window_size)
 
     print(f"Creating {quotient} folds of size {window_size} with {remainder}+ remainder.")
 
     for label, value in file_paths.items():
-        test = value[:5]  # Test set should always be (at least) five original images
-        splittable = value[:5]
-        splits = [splittable[i:i + window_size] for i in range(0, len(splittable), window_size)]
+        splits = [value[i:i + window_size] for i in range(0, len(value), window_size)]
 
-        for i in range(len(splits)):
+        for i in range(quotient):
             if i not in folds:
                 folds[i] = {}
 
             if label not in folds[i]:
                 folds[i][label] = {}
 
-            folds[i][label]["val"] = splits[i]
-            folds[i][label]["test"] = test
+            folds[i][label]["test"] = splits[i]
 
-            total_train_set = [v for v in value if v not in folds[i][label]["val"] and v not in folds[i][label]["test"]]
+            total_train_set = [v for v in value if v not in folds[i][label]["test"]]
 
             if balance:
                 k = least_class_count - window_size
@@ -147,9 +145,6 @@ def fold_to_data(fold, color, resize=(128, 128), recombination_ratio=4.5, batch_
     test_labels = []
 
     for label, filepaths in fold.items():
-        for path in filepaths["val"]:
-            val_labels.append(label)
-            val_images.append(load_image(path, color_mode=color, resize=resize))
 
         for path in filepaths["test"]:
             test_labels.append(label)
@@ -157,6 +152,10 @@ def fold_to_data(fold, color, resize=(128, 128), recombination_ratio=4.5, batch_
 
         base_train_images = []
         class_train_images = []
+
+        val_path = filepaths["train"].pop(0)
+        val_images.append(load_image(val_path, color_mode=color, resize=resize))
+        val_labels.append(label)
 
         for path in filepaths["train"]:
             img = load_image(path, color_mode=color, resize=resize)

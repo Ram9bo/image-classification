@@ -20,8 +20,8 @@ def ablation():
     file = util.data_path(f"{name}.csv")
 
     pd.DataFrame().to_csv(file)
-    runs = 10
-    epochs = 10
+    runs = 1
+    epochs = 1
 
     try:
         # Get the best hyperparameters
@@ -33,26 +33,10 @@ def ablation():
 
     best_hyperparameters["epochs"] = epochs
     best_hyperparameters["batch_size"] = 64
-    best_hyperparameters["fold_size"] = 3
 
     accs = {}
 
     acc, std, setting, obo, obosd = average_train("Standard", file, runs=runs, **best_hyperparameters)
-
-    accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd}
-
-    acc, std, setting, obo, obosd = average_train("Compressed Both", file, runs=runs, **best_hyperparameters,
-                                                  classmode=ClassMode.COMPRESSED_BOTH)
-
-    accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd}
-
-    acc, std, setting, obo, obosd = average_train("Compressed Start", file, runs=runs, **best_hyperparameters,
-                                                  classmode=ClassMode.COMPRESSED_START)
-
-    accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd}
-
-    acc, std, setting, obo, obosd = average_train("Compressed End", file, runs=runs, **best_hyperparameters,
-                                                  classmode=ClassMode.COMPRESSED_END)
 
     accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd}
 
