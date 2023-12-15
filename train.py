@@ -1,6 +1,7 @@
 """
 Model training.
 """
+import json
 import os
 import time
 
@@ -98,6 +99,14 @@ def train_network(fold, epochs=10, transfer=True,
     correct, obo, incorrect = evaluate(preds, true_labels)
     print(f"Accuracy: {correct}, Off-By-One: {obo}, Error Rate: {incorrect}")
 
+    with open('eval.json', 'r') as json_file:
+        best_metrics = json.load(json_file)
+
+    if correct > best_metrics["acc"] or (correct == best_metrics["acc"] and obo > best_metrics["obo"]):
+        with open('eval.json', "w") as json_file:
+            json.dump({"acc": correct, "obo": obo}, json_file)
+        model.save("best_model.keras")
+
     return hist, correct, obo, preds, true_labels, report_dict["weighted avg"]["f1-score"]
 
 
@@ -128,6 +137,10 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
     """
     Perform training runs according to the given parameters and save the results.
     """
+
+    with open('eval.json', "w") as json_file:
+        json.dump({"acc": 0.0, "obo": 0.0}, json_file)
+
     start = time.time()
     # Initialize an empty DataFrame to store the merged data
     merged_df = pd.DataFrame(columns=['Epochs', 'Validation Accuracy', 'Setting'])
@@ -142,7 +155,7 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
         fold_accs = []
         fold_obo = []
         for fold_id, fold in folds.items():
-            print(f"Run {i+1}, fold {fold_id}")
+            print(f"Run {i + 1}, fold {fold_id}")
             hist_object, accuracy, obo, preds, true_labels, f1 = train_network(fold=fold, epochs=epochs,
                                                                                transfer=transfer,
                                                                                classmode=classmode,

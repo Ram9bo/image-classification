@@ -6,6 +6,8 @@ data.zip
 pretrained_models/
 tuning/
 best_model.h5
+best_model.keras
+eval.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
