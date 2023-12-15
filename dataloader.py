@@ -179,10 +179,6 @@ def fold_to_data(fold, color, resize=(128, 128), recombination_ratio=4.5, batch_
 
     return train_data, val_data, test_data
 
-
-# TODO: add a function that returns train, val, test datasets (with augmentation) without a fold structure, for future
-#   convenience
-
 def make_data_set(images, labels, batch_size=2, name='', rotate=True, flip=True, brightness_delta=0,
                   shuffle=False, verbose=1):
     assert len(images) == len(labels)

@@ -20,8 +20,8 @@ def ablation():
     file = util.data_path(f"{name}.csv")
 
     pd.DataFrame().to_csv(file)
-    runs = 1
-    epochs = 1
+    runs = 2
+    epochs = 10
 
     try:
         # Get the best hyperparameters
@@ -33,10 +33,18 @@ def ablation():
 
     best_hyperparameters["epochs"] = epochs
     best_hyperparameters["batch_size"] = 64
+    best_hyperparameters["flip"] = True
+    best_hyperparameters["recombination_ratio"] = 1.5
+    best_hyperparameters["balance"] = False
 
     accs = {}
 
     acc, std, setting, obo, obosd = average_train("Standard", file, runs=runs, **best_hyperparameters)
+
+    accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd}
+
+    acc, std, setting, obo, obosd = average_train("Compressed Both", file, runs=runs, **best_hyperparameters,
+                                                  classmode=ClassMode.COMPRESSED_BOTH)
 
     accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd}
 
@@ -47,20 +55,12 @@ def ablation():
 if __name__ == "__main__":
     ablation()
 
-# TODO: once all the data is in, do a random test-set splitoff, then do the tuning on the remaining data, and then do the
-#   training/eval, to ensure that the test data is not used for tuning OR maybe wrap it all in another crossfold,
-#   so the test set is also swapped and then do tuning for each run (that is of course an issue with runtime)
-# TODO: try a patch-based approach after all (probably 64x64 or so)
 # TODO: big cleanup, get rid of everything that is not used in the training of the final model or the inference functionality
 # TODO: write a clickable script that performs inference on the images in some folder, include an instruction txt and a json config
 #   config should include things like image directory, maybe model paths, maybe settings like ensemble/solo
 # TODO: provide a streamlined way to retrain the model(s) based on the data in a configurable directory
 # TODO: provide a streamlined way to run additional tuning based on the data in a configurable directory
-# TODO: provide a streamlined way to visualize the evaluation of models at a given/configurable path
 # TODO: logging cleanup, at least get rid of irrelevant prints, make sure everything printed is intuitive and clear, also consider using
 #   logging with different levels (logging module)
 # TODO: comment/documentation cleanup, both adding where needed and removing where obsolete (or rudimentary chatgpt comments)
 # TODO: do a thorough check on file paths and such
-# TODO: if disk size or RAM consumption turns out to be an issue, we can look into pruning
-#   https://www.dlology.com/blog/how-to-compress-your-keras-model-x5-smaller-with-tensorflow-model-optimization/
-# TODO: If I can find the time, try a multi-resolution ensemble
