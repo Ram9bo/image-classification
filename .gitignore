@@ -7,6 +7,11 @@ pretrained_models/
 tuning/
 best_model.h5
 *.png
+best_model.keras
+eval.json
+model/
+images/
+results.csv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

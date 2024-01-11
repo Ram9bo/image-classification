@@ -1,21 +1,23 @@
 """
 Model training.
 """
+import json
 import os
 import time
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 import tensorflow as tf
 from sklearn.metrics import classification_report
+from sklearn.metrics import confusion_matrix
 from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras.callbacks import ModelCheckpoint
+
 import dataloader
 import network
 from enums import ClassMode
-from sklearn.metrics import confusion_matrix
-import matplotlib.pyplot as plt
-import seaborn as sns
 
 print('Available GPUs', tf.config.list_physical_devices('GPU'))
 
@@ -29,15 +31,14 @@ def train_network(data_split, epochs=10, transfer=True,
                   transfer_source="xception", colour="rgb", class_weights=False, recombination_ratio=1.0,
                   resize=(256, 256),
                   dense_layers=6, dense_size=128, lr=0.001, rotate=True, flip=True, brightness_delta=0.0, batch_size=2,
-                  dropout=0.1, unfreeze=0, checkpoint_select="val_accuracy", verbose=1, patches=False):
+                  dropout=0.1, unfreeze=0, checkpoint_select="val_accuracy", verbose=1):
     num_classes = 6
     if classmode == ClassMode.COMPRESSED_START or classmode == ClassMode.COMPRESSED_END:
         num_classes = 5
     elif classmode == ClassMode.COMPRESSED_BOTH:
         num_classes = 4
 
-    if verbose:
-        print(f"Predicting {num_classes} classes")
+    print(f"Predicting {num_classes} classes")
 
     width, height, channels = network.INPUT_SHAPE
     if resize is not None:
@@ -64,7 +65,7 @@ def train_network(data_split, epochs=10, transfer=True,
 
     train, val, test = dataloader.split_to_data(data_split, color=colour, batch_size=batch_size, resize=resize,
                                                 recombination_ratio=recombination_ratio, rotate=rotate, flip=flip,
-                                                brightness_delta=brightness_delta, verbose=verbose, patches=patches)
+                                                brightness_delta=brightness_delta, verbose=verbose)
 
     class_weights_dict = None
     if class_weights:
@@ -72,8 +73,7 @@ def train_network(data_split, epochs=10, transfer=True,
         y_train = np.concatenate([y for x, y in train], axis=0)
         class_weights_list = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
         class_weights_dict = dict(enumerate(class_weights_list))
-        if verbose:
-            print(class_weights_dict)
+        print(class_weights_dict)
 
     # Define ModelCheckpoint callback
     checkpoint_filepath = 'best_model.h5'  # Specify the path to save the best model
@@ -90,37 +90,15 @@ def train_network(data_split, epochs=10, transfer=True,
                      class_weight=class_weights_dict)
 
     # Load the best model weights
-    #model.load_weights(checkpoint_filepath)
+    # model.load_weights(checkpoint_filepath)
 
-    return eval_test(hist, model, test, verbose, resize, patches)
+    return eval_test(hist, model, test, verbose, resize)
 
 
-def eval_test(hist, model, test, verbose, resize, patches):
+def eval_test(hist, model, test, verbose, resize):
     true_labels = np.concatenate([y for x, y in test], axis=0)
 
-    if patches:
-        preds = []
-        test = test.unbatch()
-
-        for x, y in test:
-            img = x.numpy()
-            w, h, c = img.shape
-
-            patch_size = resize[0]
-            w_segments = w // patch_size
-            h_segments = h // patch_size
-
-            patches_list = []
-            for i in range(w_segments):
-                for j in range(h_segments):
-                    patch = img[i * patch_size:(i + 1) * patch_size, j * patch_size:(j + 1) * patch_size]
-                    patches_list.append(patch)
-
-            predictions = np.argmax(model.predict(np.array(patches_list), verbose=0), axis=1)
-            p = np.random.choice(np.flatnonzero(np.bincount(predictions) == np.bincount(predictions).max()))
-            preds.append(p)
-    else:
-        preds = np.argmax(model.predict(test, verbose=verbose), axis=1)
+    preds = np.argmax(model.predict(test, verbose=verbose), axis=1)
 
     report = classification_report(true_labels, preds)
     report_dict = classification_report(true_labels, preds, output_dict=True)
@@ -155,10 +133,14 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
                   classmode=ClassMode.STANDARD, transfer_source="xception", colour="rgb", balance=True,
                   class_weights=False, resize=256, dense_layers=4, dense_size=64, lr=0.001,
                   max_training=None, rotate=True, flip=False, brightness_delta=0.0, batch_size=32,
-                  dropout=0.0, unfreeze=0, checkpoint_select="val_accuracy", patches=False):
+                  dropout=0.0, unfreeze=0, checkpoint_select="val_accuracy"):
     """
     Perform training runs according to the given parameters and save the results.
     """
+
+    with open('eval.json', "w") as json_file:
+        json.dump({"acc": 0.0, "obo": 0.0}, json_file)
+
     start = time.time()
     # Initialize an empty DataFrame to store the merged data
     merged_df = pd.DataFrame(columns=['Epochs', 'Validation Accuracy', 'Setting'])
@@ -174,7 +156,7 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
 
     for i in range(runs):
         splits = dataloader.split(classmode=classmode, balance=balance,
-                                 max_training=max_training)
+                                  max_training=max_training)
         fold_accs = []
         fold_obo = []
         fold_f1 = []
@@ -194,8 +176,7 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
                                                                                brightness_delta=brightness_delta,
                                                                                batch_size=batch_size,
                                                                                dropout=dropout, unfreeze=unfreeze,
-                                                                               checkpoint_select=checkpoint_select,
-                                                                               patches=patches)
+                                                                               checkpoint_select=checkpoint_select)
 
             # Check if the current F1 score is the best so far
             if accuracy > best_accuracy:
@@ -252,7 +233,8 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
     plt.savefig(f'normalized_confusion_matrix_{name}_full.png')
     plt.close()
 
-    return np.mean(full_accs), np.std(full_accs), name, np.mean(full_obo), np.std(full_obo), np.mean(full_f1), np.std(full_f1)
+    return np.mean(full_accs), np.std(full_accs), name, np.mean(full_obo), np.std(full_obo), np.mean(full_f1), np.std(
+        full_f1)
 
 
 def add_runs(run_results, file):

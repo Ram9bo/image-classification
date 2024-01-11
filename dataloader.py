@@ -12,7 +12,7 @@ from PIL import Image
 from enums import ClassMode
 
 
-def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2, translate=True, shuffle=True):
+def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2, shuffle=True):
     """
     Augment the given dataset according to the given parameters and shuffle the resulting dataset.
     """
@@ -38,14 +38,14 @@ def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2
         return final
 
 
-def load_image(file_path, color_mode="rgb", resize=(256, 256), patches=False):
+def load_image(file_path, color_mode="rgb", resize=(256, 256)):
     img = Image.open(file_path)
 
     if color_mode == "gray_scale":
         img = img.convert('L')
         img = Image.merge('RGB', (img, img, img))
 
-    if not patches and resize is not None:
+    if resize is not None:
         img = img.resize(resize)
 
     img_array = np.array(img)
@@ -54,21 +54,7 @@ def load_image(file_path, color_mode="rgb", resize=(256, 256), patches=False):
     if c == 4:
         img_array = img_array[:, :, :3]  # Remove the last channel
 
-    if patches:
-        patch_size = resize[0]
-        w_segments = w // patch_size
-        h_segments = h // patch_size
-
-        patches_list = []
-        for i in range(w_segments):
-            for j in range(h_segments):
-                patch = img_array[i * patch_size:(i + 1) * patch_size, j * patch_size:(j + 1) * patch_size]
-                patches_list.append(patch / 255)
-
-        random.shuffle(patches_list)
-        return patches_list
-    else:
-        return [img_array / 255]
+    return [img_array / 255]
 
 
 def file_path_dict(classmode=ClassMode.STANDARD):
@@ -142,7 +128,7 @@ def split(classmode=ClassMode.STANDARD, balance=False, max_training=None, test_s
 
 
 def split_to_data(data_split, color, resize=(128, 128), recombination_ratio=4.5, batch_size=2, rotate=True,
-                  flip=True, brightness_delta=0, verbose=1, patches=False):
+                  flip=True, brightness_delta=0, verbose=1):
     """
     Converts the given data split of file paths to training and test datasets.
     """
@@ -157,13 +143,13 @@ def split_to_data(data_split, color, resize=(128, 128), recombination_ratio=4.5,
 
         for path in filepaths["test"]:
             test_labels.append(label)
-            test_images.extend(load_image(path, color_mode=color, resize=resize, patches=False))
+            test_images.extend(load_image(path, color_mode=color, resize=resize))
 
         base_train_images = []
         class_train_images = []
 
         for path in filepaths["train"]:
-            img = load_image(path, color_mode=color, resize=resize, patches=patches)
+            img = load_image(path, color_mode=color, resize=resize)
             class_train_images.extend(img)
             base_train_images.extend(img)
 
