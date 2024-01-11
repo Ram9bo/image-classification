@@ -13,7 +13,6 @@ import tensorflow as tf
 from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
 from sklearn.utils.class_weight import compute_class_weight
-from tensorflow.keras.callbacks import ModelCheckpoint
 
 import dataloader
 import network
@@ -22,16 +21,12 @@ from enums import ClassMode
 print('Available GPUs', tf.config.list_physical_devices('GPU'))
 
 
-def extract_labels(features, labels):
-    return labels
-
-
 def train_network(data_split, epochs=10, transfer=True,
                   classmode=ClassMode.STANDARD,
                   transfer_source="xception", colour="rgb", class_weights=False, recombination_ratio=1.0,
                   resize=(256, 256),
                   dense_layers=6, dense_size=128, lr=0.001, rotate=True, flip=True, brightness_delta=0.0, batch_size=2,
-                  dropout=0.1, unfreeze=0, checkpoint_select="val_accuracy", verbose=1):
+                  dropout=0.1, unfreeze=0, verbose=1):
     num_classes = 6
     if classmode == ClassMode.COMPRESSED_START or classmode == ClassMode.COMPRESSED_END:
         num_classes = 5
@@ -75,27 +70,14 @@ def train_network(data_split, epochs=10, transfer=True,
         class_weights_dict = dict(enumerate(class_weights_list))
         print(class_weights_dict)
 
-    # Define ModelCheckpoint callback
-    checkpoint_filepath = 'best_model.h5'  # Specify the path to save the best model
-    model_checkpoint_callback = ModelCheckpoint(
-        filepath=checkpoint_filepath,
-        save_weights_only=True,  # Save only the model weights, not the entire model
-        monitor=checkpoint_select,  # Monitor validation accuracy
-        mode='max',  # 'max' means save the model when the monitored quantity is maximized
-        save_best_only=True,  # Save only the best model
-    )
-
     hist = model.fit(train, epochs=epochs, verbose=verbose, validation_data=val,
                      callbacks=[],
                      class_weight=class_weights_dict)
 
-    # Load the best model weights
-    # model.load_weights(checkpoint_filepath)
-
-    return eval_test(hist, model, test, verbose, resize)
+    return eval_test(hist, model, test, verbose)
 
 
-def eval_test(hist, model, test, verbose, resize):
+def eval_test(hist, model, test, verbose):
     true_labels = np.concatenate([y for x, y in test], axis=0)
 
     preds = np.argmax(model.predict(test, verbose=verbose), axis=1)
@@ -133,7 +115,7 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
                   classmode=ClassMode.STANDARD, transfer_source="xception", colour="rgb", balance=True,
                   class_weights=False, resize=256, dense_layers=4, dense_size=64, lr=0.001,
                   max_training=None, rotate=True, flip=False, brightness_delta=0.0, batch_size=32,
-                  dropout=0.0, unfreeze=0, checkpoint_select="val_accuracy"):
+                  dropout=0.0, unfreeze=0, checkpoint_select=None, patches=None):
     """
     Perform training runs according to the given parameters and save the results.
     """
@@ -175,8 +157,7 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
                                                                                flip=flip,
                                                                                brightness_delta=brightness_delta,
                                                                                batch_size=batch_size,
-                                                                               dropout=dropout, unfreeze=unfreeze,
-                                                                               checkpoint_select=checkpoint_select)
+                                                                               dropout=dropout, unfreeze=unfreeze)
 
             # Check if the current F1 score is the best so far
             if accuracy > best_accuracy:

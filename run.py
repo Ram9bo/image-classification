@@ -2,7 +2,7 @@
 Model training.
 """
 import json
-
+import os
 import pandas as pd
 import tensorflow as tf
 
@@ -22,14 +22,20 @@ def ablation():
     runs = 5
     epochs = 20
 
-    try:
-        # Get the best hyperparameters
-        best_hyperparameters = tuner.get_best()
-        best_hyperparameters.pop('patches', None)  # delete this obsolete parameter
+    if os.path.exists("params.json"):
+        with open("params.json", "r") as json_file:
+            best_hyperparameters = json.load(json_file)
+    else:
+        try:
+            # Get the best hyperparameters
+            best_hyperparameters = tuner.get_best()
 
-        print(best_hyperparameters)
-    except IndexError:
-        best_hyperparameters = {}
+            with open("params.json", "w") as json_file:
+                json.dump(best_hyperparameters, json_file)
+
+            print(best_hyperparameters)
+        except IndexError:
+            best_hyperparameters = {}
 
     best_hyperparameters["epochs"] = epochs
     best_hyperparameters["batch_size"] = 64

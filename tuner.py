@@ -80,7 +80,6 @@ class CustomTuner(kt.BayesianOptimization):
                                                                                  batch_size=batch_size,
                                                                                  dropout=dropout,
                                                                                  unfreeze=unfreeze,
-                                                                                 checkpoint_select=checkpoint_select,
                                                                                  patches=patches)
                     results.append(acc)
                 except Exception as e:
