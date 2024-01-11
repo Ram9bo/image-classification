@@ -10,6 +10,7 @@ import dataloader
 import train
 from enums import ClassMode
 from tqdm import tqdm
+
 print('Available GPUs', tf.config.list_physical_devices('GPU'))
 
 
@@ -37,7 +38,7 @@ class CustomTuner(kt.BayesianOptimization):
     def run_trial(self, trial, *args, **kwargs):
         hp = trial.hyperparameters
 
-        resize = hp.Choice("resize", [512, 256, 128], default=128)
+        resize = hp.Choice("resize", [512, 256, 128], default=256)
         unfreeze = hp.Int("unfreeze", min_value=0, max_value=10, default=0)
         balance = hp.Choice("balance", [True, False], default=True)
         class_weights = hp.Choice("class_weights", [False, True], default=True)
@@ -50,20 +51,21 @@ class CustomTuner(kt.BayesianOptimization):
         rotate = hp.Choice("rotate", [True, False], default=True)
         flip = hp.Choice("flip", [True, False], default=True)
         brightness_delta = hp.Choice("brightness_delta", [0.0, 0.05, 0.1, 0.2, 0.5], default=0)
-        batch_size = 16
+        batch_size = 32
         dropout = hp.Float("dropout", min_value=0.0, max_value=0.3, step=0.05)
-        fold_size = hp.Choice("fold_size", [1, 2, 3, 4, 5], default=3)
+        fold_size = 3
         checkpoint_select = hp.Choice("checkpoint_select", ["val_accuracy", "val_loss"], default="val_accuracy")
+        patches = hp.Choice("patches", [False, True], default=False)
 
         results = []
 
         epochs = 10
 
         for _ in tqdm(range(self.executions_per_trial)):
-            folds = dataloader.folds(classmode=ClassMode.STANDARD, window_size=fold_size, balance=balance)
+            folds = dataloader.split(classmode=ClassMode.STANDARD, window_size=fold_size, balance=balance)
             for fold_id, fold in folds.items():
                 try:
-                    hist, acc, obo, preds, true_labels, f1 = train.train_network(fold=fold, epochs=epochs,
+                    hist, acc, obo, preds, true_labels, f1 = train.train_network(data_split=fold, epochs=epochs,
                                                                                  class_weights=class_weights,
                                                                                  recombination_ratio=recombination_ratio,
                                                                                  resize=(resize, resize),
@@ -78,7 +80,8 @@ class CustomTuner(kt.BayesianOptimization):
                                                                                  batch_size=batch_size,
                                                                                  dropout=dropout,
                                                                                  unfreeze=unfreeze,
-                                                                                 checkpoint_select=checkpoint_select, verbose=1)
+                                                                                 checkpoint_select=checkpoint_select,
+                                                                                 patches=patches)
                     results.append(acc)
                 except Exception as e:
                     print(e)

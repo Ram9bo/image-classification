@@ -2,13 +2,12 @@
 Model training.
 """
 import json
-
+from enums import ClassMode
 import pandas as pd
 import tensorflow as tf
 
 import tuner
 import util
-from enums import ClassMode
 from train import average_train
 
 print('Available GPUs', tf.config.list_physical_devices('GPU'))
@@ -16,12 +15,12 @@ print('Available GPUs', tf.config.list_physical_devices('GPU'))
 
 def ablation():
     # Create DataFrames for different settings
-    name = "classmode"
+    name = "conf"
     file = util.data_path(f"{name}.csv")
 
     pd.DataFrame().to_csv(file)
-    runs = 10
-    epochs = 10
+    runs = 5
+    epochs = 20
 
     try:
         # Get the best hyperparameters
@@ -33,28 +32,26 @@ def ablation():
 
     best_hyperparameters["epochs"] = epochs
     best_hyperparameters["batch_size"] = 64
-    best_hyperparameters["fold_size"] = 3
+
+    print(f"Doing {runs} runs per setting.")
 
     accs = {}
 
-    acc, std, setting, obo, obosd = average_train("Standard", file, runs=runs, **best_hyperparameters)
+    acc, std, setting, obo, obosd, f1, f1sd = average_train("Standard", file, runs=runs, **best_hyperparameters, classmode=ClassMode.STANDARD)
 
-    accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd}
+    accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd, "f1": f1, "f1_sd": f1sd}
 
-    acc, std, setting, obo, obosd = average_train("Compressed Both", file, runs=runs, **best_hyperparameters,
-                                                  classmode=ClassMode.COMPRESSED_BOTH)
+    acc, std, setting, obo, obosd, f1, f1sd = average_train("Compressed Start", file, runs=runs, **best_hyperparameters, classmode=ClassMode.COMPRESSED_START)
 
-    accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd}
+    accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd, "f1": f1, "f1_sd": f1sd}
 
-    acc, std, setting, obo, obosd = average_train("Compressed Start", file, runs=runs, **best_hyperparameters,
-                                                  classmode=ClassMode.COMPRESSED_START)
+    acc, std, setting, obo, obosd, f1, f1sd = average_train("Compressed End", file, runs=runs, **best_hyperparameters, classmode=ClassMode.COMPRESSED_END)
 
-    accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd}
+    accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd, "f1": f1, "f1_sd": f1sd}
 
-    acc, std, setting, obo, obosd = average_train("Compressed End", file, runs=runs, **best_hyperparameters,
-                                                  classmode=ClassMode.COMPRESSED_END)
+    acc, std, setting, obo, obosd, f1, f1sd = average_train("Compressed Both", file, runs=runs, **best_hyperparameters, classmode=ClassMode.COMPRESSED_BOTH)
 
-    accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd}
+    accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd, "f1": f1, "f1_sd": f1sd}
 
     with open(util.data_path(f"{name}.json"), "w") as json_file:
         json.dump(accs, json_file)
@@ -62,11 +59,8 @@ def ablation():
 
 if __name__ == "__main__":
     ablation()
-
-# TODO: once all the data is in, do a random test-set splitoff, then do the tuning on the remaining data, and then do the
-#   training/eval, to ensure that the test data is not used for tuning OR maybe wrap it all in another crossfold,
-#   so the test set is also swapped and then do tuning for each run (that is of course an issue with runtime)
-# TODO: try a patch-based approach after all (probably 64x64 or so)
+# TODO: do a run to generate a final model for in the application (do x runs on standard classmode and save the model with the highest test f1/acc)
+# TODO: make sure the final hyperparameters are included in the repo for default use without further tuning
 # TODO: big cleanup, get rid of everything that is not used in the training of the final model or the inference functionality
 # TODO: write a clickable script that performs inference on the images in some folder, include an instruction txt and a json config
 #   config should include things like image directory, maybe model paths, maybe settings like ensemble/solo

@@ -38,25 +38,37 @@ def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2
         return final
 
 
-def load_image(file_path, color_mode="rgb", resize=(256, 256)):
+def load_image(file_path, color_mode="rgb", resize=(256, 256), patches=False):
     img = Image.open(file_path)
 
     if color_mode == "gray_scale":
         img = img.convert('L')
         img = Image.merge('RGB', (img, img, img))
 
-    if resize is not None:
+    if not patches and resize is not None:
         img = img.resize(resize)
 
     img_array = np.array(img)
 
     w, h, c = img_array.shape
     if c == 4:
-        print("ANOMALOUS IMAGE")
-        print(img_array.shape)
         img_array = img_array[:, :, :3]  # Remove the last channel
 
-    return img_array / 255
+    if patches:
+        patch_size = resize[0]
+        w_segments = w // patch_size
+        h_segments = h // patch_size
+
+        patches_list = []
+        for i in range(w_segments):
+            for j in range(h_segments):
+                patch = img_array[i * patch_size:(i + 1) * patch_size, j * patch_size:(j + 1) * patch_size]
+                patches_list.append(patch / 255)
+
+        random.shuffle(patches_list)
+        return patches_list
+    else:
+        return [img_array / 255]
 
 
 def file_path_dict(classmode=ClassMode.STANDARD):
@@ -88,11 +100,9 @@ def file_path_dict(classmode=ClassMode.STANDARD):
     return file_paths
 
 
-def folds(classmode=ClassMode.STANDARD, window_size=5, balance=False, max_training=None):
+def split(classmode=ClassMode.STANDARD, balance=False, max_training=None, test_size=5):
     """
-    Creates as many folds as possible by finding the least class count and seeing how many window sizes fit in it.
-    Then, the validations set for the fold is taken according to the window size, and the rest is training data.
-    Number of folds is thus least_class_count // window_size
+    Splits data into test and train sets (in the form of filenames)
     """
 
     file_paths = file_path_dict(classmode)
@@ -100,30 +110,30 @@ def folds(classmode=ClassMode.STANDARD, window_size=5, balance=False, max_traini
     folds = {}
 
     least_class_count = min([len(value) for value in file_paths.values()])
-    quotient, remainder = divmod(least_class_count - 5, window_size)
-
-    print(f"Creating {quotient} folds of size {window_size} with {remainder}+ remainder.")
+    fold_count = 1
 
     for label, value in file_paths.items():
         test = value[:5]  # Test set should always be (at least) five original images
-        splittable = value[:5]
-        splits = [splittable[i:i + window_size] for i in range(0, len(splittable), window_size)]
 
-        for i in range(len(splits)):
+        for i in range(fold_count):
             if i not in folds:
                 folds[i] = {}
 
             if label not in folds[i]:
                 folds[i][label] = {}
 
-            folds[i][label]["val"] = splits[i]
+            folds[i][label]["val"] = []
             folds[i][label]["test"] = test
 
             total_train_set = [v for v in value if v not in folds[i][label]["val"] and v not in folds[i][label]["test"]]
 
+            overlap = [e for e in total_train_set if e in folds[i][label]["test"]]
+            if len(overlap) > 0:
+                print(overlap)
+
             if balance:
-                k = least_class_count - window_size
-                if max_training is not None and window_size <= max_training <= k:
+                k = least_class_count - test_size
+                if max_training is not None and test_size <= max_training <= k:
                     k = max_training
                 folds[i][label]["train"] = random.choices(total_train_set, k=k)
             else:
@@ -131,14 +141,11 @@ def folds(classmode=ClassMode.STANDARD, window_size=5, balance=False, max_traini
     return folds
 
 
-def fold_to_data(fold, color, resize=(128, 128), recombination_ratio=4.5, batch_size=2, rotate=True,
-                 flip=True, brightness_delta=0, verbose=1):
+def split_to_data(data_split, color, resize=(128, 128), recombination_ratio=4.5, batch_size=2, rotate=True,
+                  flip=True, brightness_delta=0, verbose=1, patches=False):
     """
-    Converts the given fold of file paths to training and validation datasets.
+    Converts the given data split of file paths to training and test datasets.
     """
-
-    val_images = []
-    val_labels = []
 
     train_images = []
     train_labels = []
@@ -146,22 +153,19 @@ def fold_to_data(fold, color, resize=(128, 128), recombination_ratio=4.5, batch_
     test_images = []
     test_labels = []
 
-    for label, filepaths in fold.items():
-        for path in filepaths["val"]:
-            val_labels.append(label)
-            val_images.append(load_image(path, color_mode=color, resize=resize))
+    for label, filepaths in data_split.items():
 
         for path in filepaths["test"]:
             test_labels.append(label)
-            test_images.append(load_image(path, color_mode=color, resize=resize))
+            test_images.extend(load_image(path, color_mode=color, resize=resize, patches=False))
 
         base_train_images = []
         class_train_images = []
 
         for path in filepaths["train"]:
-            img = load_image(path, color_mode=color, resize=resize)
-            class_train_images.append(img)
-            base_train_images.append(img)
+            img = load_image(path, color_mode=color, resize=resize, patches=patches)
+            class_train_images.extend(img)
+            base_train_images.extend(img)
 
         recombinations = int(len(base_train_images) * recombination_ratio)
         if recombinations > 0:
@@ -173,16 +177,11 @@ def fold_to_data(fold, color, resize=(128, 128), recombination_ratio=4.5, batch_
     train_data = make_data_set(train_images, train_labels, name="train", batch_size=batch_size, rotate=rotate,
                                flip=flip,
                                brightness_delta=brightness_delta, shuffle=True, verbose=verbose)
-    val_data = make_data_set(val_images, val_labels, name="val", batch_size=batch_size, rotate=True, flip=False,
-                             brightness_delta=0, shuffle=False, verbose=verbose)
     test_data = make_data_set(test_images, test_labels, name="test", batch_size=batch_size, rotate=True, flip=False,
                               brightness_delta=0, shuffle=False, verbose=verbose)
 
-    return train_data, val_data, test_data
+    return train_data, None, test_data
 
-
-# TODO: add a function that returns train, val, test datasets (with augmentation) without a fold structure, for future
-#   convenience
 
 def make_data_set(images, labels, batch_size=2, name='', rotate=True, flip=True, brightness_delta=0,
                   shuffle=False, verbose=1):
