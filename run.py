@@ -15,11 +15,11 @@ print('Available GPUs', tf.config.list_physical_devices('GPU'))
 
 
 def ablation():
-    name = "conf"
+    name = "tool-model"
     file = util.data_path(f"{name}.csv")
 
     pd.DataFrame().to_csv(file)
-    runs = 5
+    runs = 50
     epochs = 20
 
     if os.path.exists("params.json"):
@@ -44,33 +44,40 @@ def ablation():
 
     accs = {}
 
-    acc, std, setting, obo, obosd, f1, f1sd = average_train("Standard", file, runs=runs, **best_hyperparameters,
-                                                            classmode=ClassMode.STANDARD)
+    acc, std, setting, obo, obosd, f1, f1sd, obo_h, obo_hsd, obo_l, obo_lsd, low, low_sd, high, high_sd = average_train(
+        "Standard", file, runs=runs, **best_hyperparameters,
+        classmode=ClassMode.STANDARD)
 
-    accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd, "f1": f1, "f1_sd": f1sd}
+    accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd, "f1": f1, "f1_sd": f1sd, "obo_h": obo_h,
+                     "obo_h_sd": obo_hsd, "obo_l": obo_l, "obo_lsd": obo_lsd, "low": low, "low_sd": low_sd,
+                     "high": high, "high_sd": high_sd}
 
-    acc, std, setting, obo, obosd, f1, f1sd = average_train("Compressed Start", file, runs=runs, **best_hyperparameters,
-                                                            classmode=ClassMode.COMPRESSED_START)
-
-    accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd, "f1": f1, "f1_sd": f1sd}
-
-    acc, std, setting, obo, obosd, f1, f1sd = average_train("Compressed End", file, runs=runs, **best_hyperparameters,
-                                                            classmode=ClassMode.COMPRESSED_END)
-
-    accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd, "f1": f1, "f1_sd": f1sd}
-
-    acc, std, setting, obo, obosd, f1, f1sd = average_train("Compressed Both", file, runs=runs, **best_hyperparameters,
-                                                            classmode=ClassMode.COMPRESSED_BOTH)
-
-    accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd, "f1": f1, "f1_sd": f1sd}
-
+    # acc, std, setting, obo, obosd, f1, f1sd, obo_h, obo_hsd, obo_l, obo_lsd, low, low_sd, high, high_sd = average_train(
+    #     "Compressed Start", file, runs=runs, **best_hyperparameters,
+    #     classmode=ClassMode.COMPRESSED_START)
+    #
+    # accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd, "f1": f1, "f1_sd": f1sd, "obo_h": obo_h,
+    #                  "obo_h_sd": obo_hsd, "obo_l": obo_l, "obo_lsd": obo_lsd, "low": low, "low_sd": low_sd,
+    #                  "high": high, "high_sd": high_sd}
+    # acc, std, setting, obo, obosd, f1, f1sd, obo_h, obo_hsd, obo_l, obo_lsd, low, low_sd, high, high_sd = average_train(
+    #     "Compressed End", file, runs=runs, **best_hyperparameters,
+    #     classmode=ClassMode.COMPRESSED_END)
+    #
+    # accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd, "f1": f1, "f1_sd": f1sd, "obo_h": obo_h,
+    #                  "obo_h_sd": obo_hsd, "obo_l": obo_l, "obo_lsd": obo_lsd, "low": low, "low_sd": low_sd,
+    #                  "high": high, "high_sd": high_sd}
+    # acc, std, setting, obo, obosd, f1, f1sd, obo_h, obo_hsd, obo_l, obo_lsd, low, low_sd, high, high_sd = average_train(
+    #     "Compressed Both", file, runs=runs, **best_hyperparameters,
+    #     classmode=ClassMode.COMPRESSED_BOTH)
+    #
+    # accs[setting] = {"mean": acc, "std": std, "obo": obo, "obo_sd": obosd, "f1": f1, "f1_sd": f1sd, "obo_h": obo_h,
+    #                  "obo_h_sd": obo_hsd, "obo_l": obo_l, "obo_lsd": obo_lsd, "low": low, "low_sd": low_sd,
+    #                  "high": high, "high_sd": high_sd}
     with open(util.data_path(f"{name}.json"), "w") as json_file:
         json.dump(accs, json_file)
+
+    print(accs)
 
 
 if __name__ == "__main__":
     ablation()
-# TODO: do a run to generate a final model for in the application (do x runs on standard classmode and save the model with the highest test f1/acc)
-# TODO: make sure the final hyperparameters are included in the repo for default use without further tuning
-# TODO: write a clickable script that performs inference on the images in some folder, include an instruction txt and a json config
-#   config should include things like image directory, maybe model paths, maybe settings like ensemble/solo

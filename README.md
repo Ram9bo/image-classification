@@ -7,8 +7,8 @@ Download (repository as) zip file and unpack.
 
 #### Standalone release
 Visit the [Releases](link-to-releases) page. \
-Run the executable run.exe to classify the images in the `predict` folder. 
-Prediction will be written to `predictions.csv` with filename and class columns.
+Run the executable classify.exe to classify the images in the `images` folder. 
+Prediction will be written to `results.csv` with filename and class columns.
 
 #### Run from source
 

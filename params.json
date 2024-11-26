@@ -11,5 +11,5 @@
   "rotate": 1,
   "flip": 0,
   "brightness_delta": 0.05,
-  "dropout": 0.25,
+  "dropout": 0.25
 }

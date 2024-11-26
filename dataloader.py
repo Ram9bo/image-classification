@@ -80,6 +80,10 @@ def file_path_dict(classmode=ClassMode.STANDARD):
             random.shuffle(image_filenames)
 
             for i, filename in enumerate(image_filenames):
+                # if "Saureus" in filename:
+                #     print("skipping", filename)
+                #     continue
+
                 file_path = os.path.join(folder_path, filename)
                 file_paths[label].append(file_path)
 
@@ -99,7 +103,16 @@ def split(classmode=ClassMode.STANDARD, balance=False, max_training=None, test_s
     fold_count = 1
 
     for label, value in file_paths.items():
+
+        # test = test[:len(test) // 2]
+        # if len(test) == 0:
+        #     test = value[:5]
+        # print(test)
+        value = [v for v in value if "MRSA" not in v and "Saureus" not in v and "(Epidermis)" not in v] # exclude non-standard data
         test = value[:5]  # Test set should always be (at least) five original images
+        # test = [v for v in value if "MRSA" in v] # Lisbon MRSA
+        # test = [v for v in value if "Saureus" in v] # Lisbon s. Aureus
+        # test = [v for v in value if "(Epidermis)" in v]  # LUMC Epidermis
 
         for i in range(fold_count):
             if i not in folds:
@@ -183,8 +196,7 @@ def make_data_set(images, labels, batch_size=2, name='', rotate=True, flip=True,
 
     class_counts = count_images_per_class(data_set)
 
-    if verbose:
-        print(f"Dataset {name} class counts: {class_counts}")
+    print(f"Dataset {name} class counts: {class_counts}")
 
     return data_set.batch(batch_size=batch_size)
 

@@ -62,10 +62,10 @@ class CustomTuner(kt.BayesianOptimization):
         epochs = 10
 
         for _ in tqdm(range(self.executions_per_trial)):
-            folds = dataloader.split(classmode=ClassMode.STANDARD, window_size=fold_size, balance=balance)
+            folds = dataloader.split(classmode=ClassMode.STANDARD, balance=balance)
             for fold_id, fold in folds.items():
                 try:
-                    hist, acc, obo, preds, true_labels, f1 = train.train_network(data_split=fold, epochs=epochs,
+                    hist, acc, obo, preds, true_labels, f1, model = train.train_network(data_split=fold, epochs=epochs,
                                                                                  class_weights=class_weights,
                                                                                  recombination_ratio=recombination_ratio,
                                                                                  resize=(resize, resize),

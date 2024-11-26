@@ -1,10 +1,12 @@
 import os
 import csv
+import sys
 from pathlib import Path
 from tensorflow.keras.preprocessing import image
 from tensorflow.keras.models import load_model
 import numpy as np
 import time
+
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
@@ -19,6 +21,9 @@ print(f"Using images in {image_folder} folder.")
 
 # Load the model
 model = load_model(model_path)
+
+# Set run_eagerly=True when compiling the model
+model.compile(run_eagerly=True)
 
 # Initialize lists to store results
 file_names = []
@@ -42,31 +47,32 @@ for image_path in Path(image_folder).rglob('*.png'):
 # Convert the list of images to a numpy array
 images = np.array(images)
 
-print("Classifying images.")
-# Make predictions for the entire batch
-predictions = model.predict(images, verbose=1)
+if images.shape[0] == 0:
+    print("No images were found")
+    sys.exit(1)
 
-# Extract predicted labels for each image
-predicted_labels = np.argmax(predictions, axis=1)
+else:
+    print("Classifying images.")
+    # Make predictions for the entire batch
+    predictions = model.predict(images, verbose=1)
 
-# Store results
-class_labels.extend(predicted_labels)
+    # Extract predicted labels for each image
+    predicted_labels = np.argmax(predictions, axis=1)
 
-# Write results to a CSV file
-output_csv_path = 'results.csv'
-print(f"Writing results to {output_csv_path}")
-with open(output_csv_path, 'w', newline='') as csv_file:
-    csv_writer = csv.writer(csv_file)
-    csv_writer.writerow(['File Name', 'Class Label'])
+    # Store results
+    class_labels.extend(predicted_labels)
 
-    for file_name, label in zip(file_names, class_labels):
-        csv_writer.writerow([file_name, label])
+    # Write results to a CSV file
+    output_csv_path = 'results.csv'
+    print(f"Writing results to {output_csv_path}")
+    with open(output_csv_path, 'w', newline='') as csv_file:
+        csv_writer = csv.writer(csv_file)
+        csv_writer.writerow(['File Name', 'Class Label'])
 
-print(f"Classification finished and saved. Runtime: {round(time.time() - start)} seconds")
-print("Shutting down.")
+        for file_name, label in zip(file_names, class_labels):
+            csv_writer.writerow([file_name, label])
 
-# TODO: save (some of) the parameters used to build the model and use them to make this script more dynamic
-#  (e.g. read the target resize from the parameters)
+    print(f"Classification finished and saved. Runtime: {round(time.time() - start)} seconds")
 
-
-# TODO: add a config file for things like the image folder, model path, and output path
+print("Press Enter to close program.")
+input()

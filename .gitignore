@@ -12,6 +12,9 @@ eval.json
 model/
 images/
 results.csv
+*.npy
+*.csv
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
