@@ -15,6 +15,3 @@ Prediction will be written to `results.csv` with filename and class columns.
 ##### Installing Dependencies
 Python 3.10.11 \
 pip install -r requirements.txt
-
-#### Configuration
-Configuration can be changed by editing `config.json`.

@@ -11,6 +11,9 @@ from PIL import Image
 
 from enums import ClassMode
 
+### Root data folder
+BASE_DATA_DIR = "data/all_images"
+
 
 def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2, shuffle=True):
     """
@@ -57,13 +60,17 @@ def load_image(file_path, color_mode="rgb", resize=(256, 256)):
     return [img_array / 255]
 
 
-def file_path_dict(classmode=ClassMode.STANDARD):
+def file_path_dict(classmode=ClassMode.STANDARD, excluded_filename_substrings=None):
     """
     Loads lists of the complete filepaths of all images into a dictionary indexed by label.
+    A list of strings can be passed to exclude files. Any file that matches one or more substrings will not be loaded.
     """
 
-    base_dir = "data/all_images"
+    base_dir = BASE_DATA_DIR
     file_paths = {}
+
+    if excluded_filename_substrings is None:
+        excluded_filename_substrings = []
 
     folder_names = os.listdir(base_dir)
 
@@ -76,10 +83,14 @@ def file_path_dict(classmode=ClassMode.STANDARD):
 
         if os.path.isdir(folder_path):
             files = list(os.listdir(folder_path))
-            image_filenames = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
+            image_filenames = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
             random.shuffle(image_filenames)
 
             for i, filename in enumerate(image_filenames):
+                for sub in excluded_filename_substrings:
+                    if sub in filename:
+                        print("Skipping", filename, "as it matched substring: ", sub)
+                        continue
                 # if "Saureus" in filename:
                 #     print("skipping", filename)
                 #     continue
@@ -90,26 +101,27 @@ def file_path_dict(classmode=ClassMode.STANDARD):
     return file_paths
 
 
-def split(classmode=ClassMode.STANDARD, balance=False, max_training=None, test_size=5):
+def split(classmode=ClassMode.STANDARD, balance=False, max_training=None, test_size=5, excluded_filename_substrings=None):
     """
     Splits data into test and train sets (in the form of filenames)
     """
 
-    file_paths = file_path_dict(classmode)
+    file_paths = file_path_dict(classmode, excluded_filename_substrings)
 
     folds = {}
 
     least_class_count = min([len(value) for value in file_paths.values()])
     fold_count = 1
 
-    for label, value in file_paths.items():
+    for label, file_paths in file_paths.items():
 
         # test = test[:len(test) // 2]
         # if len(test) == 0:
         #     test = value[:5]
         # print(test)
-        value = [v for v in value if "MRSA" not in v and "Saureus" not in v and "(Epidermis)" not in v] # exclude non-standard data
-        test = value[:5]  # Test set should always be (at least) five original images
+        # file_paths = [v for v in file_paths if
+        #          "MRSA" not in v and "Saureus" not in v and "(Epidermis)" not in v]  # exclude non-standard data
+        test = file_paths[:test_size]
         # test = [v for v in value if "MRSA" in v] # Lisbon MRSA
         # test = [v for v in value if "Saureus" in v] # Lisbon s. Aureus
         # test = [v for v in value if "(Epidermis)" in v]  # LUMC Epidermis
@@ -124,7 +136,7 @@ def split(classmode=ClassMode.STANDARD, balance=False, max_training=None, test_s
             folds[i][label]["val"] = []
             folds[i][label]["test"] = test
 
-            total_train_set = [v for v in value if v not in folds[i][label]["val"] and v not in folds[i][label]["test"]]
+            total_train_set = [v for v in file_paths if v not in folds[i][label]["val"] and v not in folds[i][label]["test"]]
 
             overlap = [e for e in total_train_set if e in folds[i][label]["test"]]
             if len(overlap) > 0:
@@ -175,15 +187,15 @@ def split_to_data(data_split, color, resize=(128, 128), recombination_ratio=4.5,
 
     train_data = make_data_set(train_images, train_labels, name="train", batch_size=batch_size, rotate=rotate,
                                flip=flip,
-                               brightness_delta=brightness_delta, shuffle=True, verbose=verbose)
+                               brightness_delta=brightness_delta, shuffle=True)
     test_data = make_data_set(test_images, test_labels, name="test", batch_size=batch_size, rotate=True, flip=False,
-                              brightness_delta=0, shuffle=False, verbose=verbose)
+                              brightness_delta=0, shuffle=False)
 
     return train_data, None, test_data
 
 
 def make_data_set(images, labels, batch_size=2, name='', rotate=True, flip=True, brightness_delta=0,
-                  shuffle=False, verbose=1):
+                  shuffle=False):
     assert len(images) == len(labels)
 
     images = np.array(images)
@@ -212,10 +224,8 @@ def determine_max_image_count(base_dir, folder_names):
 
         if os.path.isdir(folder_path):
             files = list(os.listdir(folder_path))
-            images = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif'))]
+            images = [f for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
             img_count = len(images)
-
-            # print(f"{folder_name} has {img_count} images.")
 
             if img_count < images_per_class:
                 images_per_class = img_count
