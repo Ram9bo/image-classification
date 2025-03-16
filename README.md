@@ -9,6 +9,9 @@ The code in this repo is meant as a reference for the conducted study. Technical
 to train new versions of the model on their own data, but we would encourage researchers to build new models
 that fit their datasets and the needs of their study.
 
+Users that do want to use the code to train a model on their own data should modify the BASE_DATA_DIR
+in 'dataloader.py' to point to a directory with a matching structure.
+
 ### Running from source
 Download or clone the repository to your machine. Install the required dependencies. Use 'run.py' as entry point
 to the system.

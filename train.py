@@ -15,7 +15,10 @@ from sklearn.metrics import confusion_matrix
 from sklearn.utils.class_weight import compute_class_weight
 
 import dataloader
+import metrics
 import network
+import util
+import vis
 from enums import ClassMode
 
 print('Available GPUs', tf.config.list_physical_devices('GPU'))
@@ -79,14 +82,15 @@ def train_network(data_split, tested_dict, epochs=10, transfer=True,
                      callbacks=[],
                      class_weight=class_weights_dict)
 
+    # Record for individual images in the test set whether they were classified correctly
+    # This can help identify 'difficult' images, with hard to discern features or artifacts
     for l in data_split:
         for file in data_split[l]["test"]:
             img = dataloader.load_image(file, color_mode=colour, resize=resize)
             img = np.array(img)
-            # print(img)
-            # print(img[0].shape)
+
             pred = np.argmax(model.predict(img, verbose=0)[0])
-            # print(pred)
+
             tested_dict[file]["n"] += 1
             diff = abs(pred - l)
             if diff > 1:
@@ -99,6 +103,7 @@ def train_network(data_split, tested_dict, epochs=10, transfer=True,
     return eval_test(hist, model, test, verbose)
 
 
+# Evaluate the given test set
 def eval_test(hist, model, test, verbose):
     true_labels = np.concatenate([y for x, y in test], axis=0)
 
@@ -153,14 +158,16 @@ def protected_div(e, d):
     return e / d if d > 0 else 0
 
 
-def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transfer=True,
+def average_train(group, setting, file, runs=5, epochs=20, recombination_ratio=1.0, transfer=True,
                   classmode=ClassMode.STANDARD, transfer_source="xception", colour="rgb", balance=True,
                   class_weights=False, resize=256, dense_layers=4, dense_size=64, lr=0.001,
                   max_training=None, rotate=True, flip=False, brightness_delta=0.0, batch_size=32,
-                  dropout=0.0, unfreeze=0, checkpoint_select=None, patches=None):
+                  dropout=0.0, unfreeze=0):
     """
     Perform training runs according to the given parameters and save the results.
     """
+
+    util.create_results_folder(group, setting)
 
     with open('eval.json', "w") as json_file:
         json.dump({"acc": 0.0, "obo": 0.0}, json_file)
@@ -185,6 +192,8 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
     history_list = []
     tested_dict = {}
 
+    full_data_list = []
+
     for i in range(runs):
         splits = dataloader.split(classmode=classmode, balance=balance,
                                   max_training=max_training)
@@ -196,7 +205,7 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
         fold_low = []
         fold_high = []
         for fold_id, split in splits.items():
-            print(f"Running {name} {i}")
+            print(f"Running {setting} {i}")
             hist_object, accuracy, obo, preds, true_labels, f1, model, obo_high, obo_low, high, low = train_network(
                 data_split=split, tested_dict=tested_dict, epochs=epochs,
                 transfer=transfer,
@@ -215,6 +224,13 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
                 dropout=dropout,
                 unfreeze=unfreeze, verbose=0)
 
+            for pred, true in zip(preds, true_labels):
+                full_data_list.append({
+                    "Run #": i,
+                    "Prediction": pred,
+                    "True Label": true
+                })
+
             for j in range(epochs):
                 history_list.append({
                     'run': i,
@@ -226,7 +242,8 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
                 })
 
             # Check if the current F1 score is the best so far
-            if accuracy > best_accuracy or (accuracy == best_accuracy and obo > best_obo) or (accuracy == best_accuracy and obo == best_obo and float(f1) > best_f1):
+            if accuracy > best_accuracy or (accuracy == best_accuracy and obo > best_obo) or (
+                    accuracy == best_accuracy and obo == best_obo and float(f1) > best_f1):
                 print("Achieved a better accuracy, saving new confusion matrix.")
                 best_accuracy = accuracy
                 best_obo = obo
@@ -240,12 +257,11 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
                 plt.title(f'Confusion Matrix - Single Model')
                 plt.xlabel('Predicted')
                 plt.ylabel('True')
-                plt.savefig(f'confusion_matrix_{name}.png')
+                plt.savefig(f'confusion_matrix_{setting}.png')
                 plt.close()
 
                 model.save("best_model.keras")
 
-            hist = hist_object.history
             fold_accs.append(accuracy)
             fold_obo.append(obo + accuracy)
             fold_f1.append(f1)
@@ -267,23 +283,31 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
         print(f"Average F1 score of folds {np.mean(fold_f1)}")
 
     history_df = pd.DataFrame(history_list)
-    history_df.to_csv(f"history-{name}.csv", index=False)
+    history_df.to_csv(f"history-{setting}.csv", index=False)
+    vis.save_history_plots(history_df, group, setting)
+
+    full_data_df = pd.DataFrame(full_data_list)
+    full_data_df.to_csv(util.results_path(group, setting, f"fulldata-{setting}.csv"), index=False)
+    metrics.save_metrics(full_data_df, group, setting)
 
     add_runs(merged_df, file)
-    print(f"Finished {runs}  \"{name}\" runs in {(time.time() - start) / 60} minutes")
+    print(f"Finished {runs}  \"{setting}\" runs in {(time.time() - start) / 60} minutes")
     print(
-        f"Accuracy of final models for setting {name}: Mean {np.mean(full_accs)}, Standard Deviation {np.std(full_accs)}")
+        f"Accuracy of final models for setting {setting}: Mean {np.mean(full_accs)}, Standard Deviation {np.std(full_accs)}")
     print(
-        f"Off-by-one accuracy of final models for setting {name}: Mean {np.mean(full_obo)}, Standard Deviation {np.std(full_obo)}")
+        f"Off-by-one accuracy of final models for setting {setting}: Mean {np.mean(full_obo)}, Standard Deviation {np.std(full_obo)}")
     print(
-        f"F1 score of final models for setting {name}: Mean {np.mean(full_f1)}, Standard Deviation {np.std(full_f1)}")
+        f"F1 score of final models for setting {setting}: Mean {np.mean(full_f1)}, Standard Deviation {np.std(full_f1)}")
 
     full_report = classification_report(all_labels, all_preds)
     print("Classification Report:\n", full_report)
 
     # Generate and save normalized confusion matrix
-    np.save(f"all-labels-{name}", np.array(all_labels))
-    np.save(f"all-preds-{name}", np.array(all_preds))
+    np.save(f"all-labels-{setting}", np.array(all_labels))
+    np.save(f"all-preds-{setting}", np.array(all_preds))
+    print(np.array(all_labels).shape, np.array(all_preds).shape)
+    vis.save_confusion_matrix(np.array(all_preds).reshape(runs, len(preds)),
+                              np.array(all_labels).reshape(runs, len(true_labels)), group, setting)
 
     cm = confusion_matrix(all_labels, all_preds)
     cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
@@ -295,7 +319,7 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
     plt.title(f'Normalized Confusion Matrix - Averaged')
     plt.xlabel('Predicted')
     plt.ylabel('True')
-    plt.savefig(f'normalized_confusion_matrix_{name}_full.png')
+    plt.savefig(f'normalized_confusion_matrix_{setting}_full.png')
     plt.close()
 
     tups = []
@@ -315,7 +339,8 @@ def average_train(name, file, runs=5, epochs=20, recombination_ratio=1.0, transf
     print("Obo: ", best_obo)
     print("F1: ", best_f1)
 
-    return np.mean(full_accs), np.std(full_accs), name, np.mean(full_obo), np.std(full_obo), np.mean(full_f1), np.std(
+    return np.mean(full_accs), np.std(full_accs), setting, np.mean(full_obo), np.std(full_obo), np.mean(
+        full_f1), np.std(
         full_f1), np.mean(full_obo_high), np.std(full_obo_high), np.mean(full_obo_low), np.std(full_obo_low), np.mean(
         full_low), np.std(full_low), np.mean(full_high), np.std(full_high)
 

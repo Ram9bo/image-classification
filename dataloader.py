@@ -11,9 +11,19 @@ from PIL import Image
 
 from enums import ClassMode
 
-### Root data folder
+# Root data folder
 BASE_DATA_DIR = "data/all_images"
 
+
+# Directory structure is expected to be:
+# data
+#   /all_images
+#       /Class 0
+#       /Class 1
+#       /Class 2
+#       /Class 3
+#       /Class 4
+#       /Class 5
 
 def augment_data(train, batch_size, rotate=True, flip=True, brightness_delta=0.2, shuffle=True):
     """
@@ -101,7 +111,8 @@ def file_path_dict(classmode=ClassMode.STANDARD, excluded_filename_substrings=No
     return file_paths
 
 
-def split(classmode=ClassMode.STANDARD, balance=False, max_training=None, test_size=5, excluded_filename_substrings=None):
+def split(classmode=ClassMode.STANDARD, balance=False, max_training=None, test_size=5,
+          excluded_filename_substrings=None):
     """
     Splits data into test and train sets (in the form of filenames)
     """
@@ -115,16 +126,7 @@ def split(classmode=ClassMode.STANDARD, balance=False, max_training=None, test_s
 
     for label, file_paths in file_paths.items():
 
-        # test = test[:len(test) // 2]
-        # if len(test) == 0:
-        #     test = value[:5]
-        # print(test)
-        # file_paths = [v for v in file_paths if
-        #          "MRSA" not in v and "Saureus" not in v and "(Epidermis)" not in v]  # exclude non-standard data
         test = file_paths[:test_size]
-        # test = [v for v in value if "MRSA" in v] # Lisbon MRSA
-        # test = [v for v in value if "Saureus" in v] # Lisbon s. Aureus
-        # test = [v for v in value if "(Epidermis)" in v]  # LUMC Epidermis
 
         for i in range(fold_count):
             if i not in folds:
@@ -136,7 +138,8 @@ def split(classmode=ClassMode.STANDARD, balance=False, max_training=None, test_s
             folds[i][label]["val"] = []
             folds[i][label]["test"] = test
 
-            total_train_set = [v for v in file_paths if v not in folds[i][label]["val"] and v not in folds[i][label]["test"]]
+            total_train_set = [v for v in file_paths if
+                               v not in folds[i][label]["val"] and v not in folds[i][label]["test"]]
 
             overlap = [e for e in total_train_set if e in folds[i][label]["test"]]
             if len(overlap) > 0:

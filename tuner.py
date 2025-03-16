@@ -53,9 +53,6 @@ class CustomTuner(kt.BayesianOptimization):
         brightness_delta = hp.Choice("brightness_delta", [0.0, 0.05, 0.1, 0.2, 0.5], default=0)
         batch_size = 32
         dropout = hp.Float("dropout", min_value=0.0, max_value=0.3, step=0.05)
-        fold_size = 3
-        checkpoint_select = hp.Choice("checkpoint_select", ["val_accuracy", "val_loss"], default="val_accuracy")
-        patches = hp.Choice("patches", [False, True], default=False)
 
         results = []
 
@@ -66,21 +63,20 @@ class CustomTuner(kt.BayesianOptimization):
             for fold_id, fold in folds.items():
                 try:
                     hist, acc, obo, preds, true_labels, f1, model = train.train_network(data_split=fold, epochs=epochs,
-                                                                                 class_weights=class_weights,
-                                                                                 recombination_ratio=recombination_ratio,
-                                                                                 resize=(resize, resize),
-                                                                                 dense_layers=dense_layers,
-                                                                                 dense_size=dense_size,
-                                                                                 colour=colour,
-                                                                                 lr=learning_rate,
-                                                                                 transfer_source="xception",
-                                                                                 rotate=rotate,
-                                                                                 flip=flip,
-                                                                                 brightness_delta=brightness_delta,
-                                                                                 batch_size=batch_size,
-                                                                                 dropout=dropout,
-                                                                                 unfreeze=unfreeze,
-                                                                                 patches=patches)
+                                                                                        class_weights=class_weights,
+                                                                                        recombination_ratio=recombination_ratio,
+                                                                                        resize=(resize, resize),
+                                                                                        dense_layers=dense_layers,
+                                                                                        dense_size=dense_size,
+                                                                                        colour=colour,
+                                                                                        lr=learning_rate,
+                                                                                        transfer_source="xception",
+                                                                                        rotate=rotate,
+                                                                                        flip=flip,
+                                                                                        brightness_delta=brightness_delta,
+                                                                                        batch_size=batch_size,
+                                                                                        dropout=dropout,
+                                                                                        unfreeze=unfreeze)
                     results.append(acc)
                 except Exception as e:
                     print(e)
