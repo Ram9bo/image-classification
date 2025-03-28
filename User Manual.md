@@ -1,7 +1,9 @@
 # User Manual
 This document provides instructions and information for users of the Biofilm Classification Tool.
+The purpose of the tool is to classify AFM images of bacterial biofilm.
 
-The development of the classification scheme and the AI model is described in our paper: [INSERT REFERENCE ONCE PUBLICATION CONFIRMED]
+The development of the classification scheme and the AI model is described in our paper. 
+A reference to the paper will be added to this manual upon publication.
 
 ## Quickstart
 To use the tool, the following three steps are needed
