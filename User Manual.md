@@ -3,7 +3,9 @@ This document provides instructions and information for users of the Biofilm Cla
 The purpose of the tool is to classify AFM images of bacterial biofilm.
 
 The development of the classification scheme and the AI model is described in our paper. 
-A reference to the paper will be added to this manual upon publication.
+<br>
+van Dun et al., _Machine learning assisted classification of staphylococcal biofilm maturity_, Biofilm,
+2025, https://doi.org/10.1016/j.bioflm.2025.100283
 
 ## Quickstart
 To use the tool, the following three steps are needed
